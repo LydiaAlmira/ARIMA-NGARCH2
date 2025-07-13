@@ -48,26 +48,46 @@ if menu == "HOME 🏠":
     """)
 
 elif menu == "INPUT DATA 📁":
-    st.header("📁 Input Data Nilai Tukar")
-    
-    uploaded_file = st.file_uploader("Upload file CSV berisi data time series nilai tukar:", type="csv")
+    st.header("📁 Input Data Nilai Tukar (Format Penelitian)")
+    uploaded_file = st.file_uploader("Upload file CSV (delimiter = ;)", type="csv")
 
     if uploaded_file is not None:
         import pandas as pd
-        df = pd.read_csv(uploaded_file)
 
-        st.subheader("🔍 Data Preview")
-        st.dataframe(df)
+        try:
+            # Baca file dengan delimiter ;
+            df = pd.read_csv(uploaded_file, delimiter=';')
 
-        # Coba cari kolom numerik untuk diplot
-        numeric_cols = df.select_dtypes(include='number').columns.tolist()
+            # Format tanggal
+            df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y %H:%M').dt.strftime('%d/%m/%Y')
 
-        if numeric_cols:
-            st.subheader("📈 Visualisasi Data (Line Chart)")
-            selected_col = st.selectbox("Pilih kolom yang ingin divisualisasikan:", numeric_cols)
+            # Bersihkan nilai dari titik dan koma
+            for col in df.columns[1:]:
+                df[col] = df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+
+            # Set index dan urutkan
+            df.set_index('Date', inplace=True)
+            df.sort_index(inplace=True)
+
+            # Konversi ke numerik
+            for col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').round(2)
+
+            # Pastikan index datetime
+            df.index = pd.to_datetime(df.index, dayfirst=True)
+            df = df.sort_index()
+
+            # Tampilkan hasil
+            st.subheader("🔍 Data Setelah Diproses")
+            st.dataframe(df)
+
+            # Pilih kolom untuk divisualisasikan
+            st.subheader("📈 Visualisasi Time Series")
+            selected_col = st.selectbox("Pilih kolom mata uang:", df.columns.tolist())
             st.line_chart(df[selected_col])
-        else:
-            st.warning("Tidak ditemukan kolom numerik untuk divisualisasikan.")
+
+        except Exception as e:
+            st.error(f"Terjadi kesalahan saat membaca data: {e}")
     else:
         st.info("Silakan unggah file CSV terlebih dahulu.")
 
