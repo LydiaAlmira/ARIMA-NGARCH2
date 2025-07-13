@@ -737,15 +737,19 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
         st.dataframe(result_df, use_container_width=True)
         st.line_chart(result_df.set_index('Hari')[['Actual', 'Forecast']])
 
-        # Evaluasi volatilitas
-        realized_var = test_data[currency][:30]**2
-        forecasted_var = forecasted_vol**2
-        rmse = np.sqrt(mean_squared_error(realized_var, forecasted_var))
-        mae = mean_absolute_error(realized_var, forecasted_var)
-        mape = np.mean(np.abs((realized_var - forecasted_var) / realized_var)) * 100
+        # Evaluasi akurasi prediksi harga
+        rmse_price = np.sqrt(mean_squared_error(result_df['Actual'], result_df['Forecast']))
+        mae_price = mean_absolute_error(result_df['Actual'], result_df['Forecast'])
+        mape_price = np.mean(np.abs((result_df['Actual'] - result_df['Forecast']) / result_df['Actual'])) * 100
 
-        st.write("📊 **Evaluasi Prediksi Volatilitas (Squared Return vs Variance):**")
-        st.write(f"**RMSE:** {rmse:.6f}")
-        st.write(f"**MAE:** {mae:.6f}")
-        st.write(f"**MAPE:** {mape:.2f}%")
-        st.markdown("---")
+        # Evaluasi coverage band
+        inside_band = ((result_df['Actual'] >= result_df['Lower_Band']) & 
+                       (result_df['Actual'] <= result_df['Upper_Band'])).sum()
+        coverage_rate = inside_band / len(result_df)
+
+        st.write("📈 **Evaluasi Prediksi Harga:**")
+        st.write(f"**RMSE:** {rmse_price:.4f}")
+        st.write(f"**MAE:** {mae_price:.4f}")
+        st.write(f"**MAPE:** {mape_price:.2f}%")
+        st.write(f"**Coverage Rate (Actual ⊂ Band):** {coverage_rate:.2%}")
+
