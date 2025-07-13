@@ -242,11 +242,12 @@ elif menu == "ARIMA (Model & Prediksi)":
 
     st.subheader("1️⃣ Identifikasi Model (ACF & PACF)")
     for currency in currencies:
+        col = f"{currency}_return"
         st.markdown(f"#### {currency}")
         fig, ax = plt.subplots(1, 2, figsize=(12, 4))
-        plot_acf(train_data[currency], ax=ax[0], lags=20)
+        plot_acf(train_data[currency][col], ax=ax[0], lags=20)
         ax[0].set_title(f"ACF {currency} Return")
-        plot_pacf(train_data[currency], ax=ax[1], lags=20)
+        plot_pacf(train_data[currency][col], ax=ax[1], lags=20)
         ax[1].set_title(f"PACF {currency} Return")
         st.pyplot(fig)
 
@@ -261,14 +262,15 @@ elif menu == "ARIMA (Model & Prediksi)":
             d = st.number_input(f"d (I) - {currency}", min_value=0, max_value=2, value=0, key=f"{currency}_d")
         with col3:
             q = st.number_input(f"q (MA) - {currency}", min_value=0, max_value=5, value=1, key=f"{currency}_q")
-
         user_orders[currency] = (p, d, q)
 
     st.subheader("3️⃣ Estimasi Parameter ARIMA")
     model_fits = {}
     for currency, order in user_orders.items():
         try:
-            model = ARIMA(train_data[currency], order=order).fit()
+            col = f"{currency}_return"
+            series = train_data[currency][col]
+            model = ARIMA(series, order=order).fit()
             model_fits[currency] = model
             st.markdown(f"### {currency} - ARIMA{order}")
             st.text(model.summary())
@@ -306,14 +308,12 @@ elif menu == "ARIMA (Model & Prediksi)":
     st.dataframe(pd.DataFrame(ljungbox_results))
     st.markdown("#### Hasil Uji Jarque-Bera")
     st.dataframe(pd.DataFrame(jb_results))
-    
-    # === SIMPAN MODEL SIGNIFIKAN UNTUK GARCH ===
+
     model_fits_signifikan = {}
     for result in ljungbox_results:
         currency = result['Mata Uang']
-        if result['p-value'] > 0.05:  # Tidak ada autokorelasi → layak lanjut ke GARCH
+        if result['p-value'] > 0.05:
             model_fits_signifikan[currency] = model_fits[currency]
-
     st.session_state.model_fits_signifikan = model_fits_signifikan
 
     st.subheader("5️⃣ Prediksi Data Test & Evaluasi Akurasi")
@@ -321,6 +321,7 @@ elif menu == "ARIMA (Model & Prediksi)":
     mape_scores = {}
 
     for currency, model in model_fits.items():
+        col = f"{currency}_return"
         forecast_return = model.forecast(steps=len(test_data[currency]))
         last_train_index = train_data[currency].index[-1]
         last_price = df.loc[last_train_index, currency]
@@ -350,7 +351,6 @@ elif menu == "ARIMA (Model & Prediksi)":
     st.dataframe(pd.DataFrame.from_dict(mape_scores, orient='index', columns=['MAPE (%)']))
 
     st.subheader("6️⃣ Prediksi 30 Hari ke Depan")
-    future_forecasts = {}
     forecast_df = pd.DataFrame()
     future_dates = pd.date_range(start=df.index[-1] + timedelta(days=1), periods=30, freq='D')
 
@@ -367,28 +367,23 @@ elif menu == "ARIMA (Model & Prediksi)":
 
     st.subheader("7️⃣ Residual Diagnostics (ACF/PACF & Uji ARCH-LM)")
     arch_lm_results = []
-
-    model_config = st.session_state.arima_orders  # Ambil konfigurasi ARIMA
+    model_config = st.session_state.arima_orders
 
     for currency, order in model_config.items():
         st.markdown(f"#### Residual Analysis - {currency} (ARIMA{order})")
-
-        series = train_data[currency]
+        col = f"{currency}_return"
+        series = train_data[currency][col]
         model = ARIMA(series, order=order).fit()
         residuals = model.resid.dropna()
 
-        # Plot ACF dan PACF
         fig, ax = plt.subplots(1, 2, figsize=(12, 4))
         plot_acf(residuals, lags=20, ax=ax[0])
         ax[0].set_title(f"ACF Residual - {currency}")
-
         plot_pacf(residuals, lags=20, ax=ax[1])
         ax[1].set_title(f"PACF Residual - {currency}")
-
         fig.suptitle(f"ACF & PACF Residual - ARIMA{order} (Return {currency})", fontsize=14)
         st.pyplot(fig)
 
-        # Uji ARCH LM
         arch_stat, arch_pvalue, _, _ = het_arch(residuals)
         arch_lm_results.append({
             'Mata Uang': currency,
@@ -404,6 +399,7 @@ elif menu == "ARIMA (Model & Prediksi)":
     st.dataframe(arch_lm_df)
 
     st.success("Residual analysis selesai. Siap lanjut ke pemodelan GARCH!")
+
 
 
 elif menu == "GARCH (Model)":
