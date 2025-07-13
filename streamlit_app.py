@@ -52,17 +52,6 @@ elif menu == "INPUT DATA 📁":
         try:
             # Baca file dengan delimiter ;
             df = pd.read_csv(uploaded_file, delimiter=';')
-            st.session_state.df = df.copy()
-       
-            # Pilih variabel yang ingin dianalisis
-            numeric_cols = df.select_dtypes(include='number').columns.tolist()
-            selected_vars = st.multiselect("Pilih variabel mata uang yang ingin diproses:", numeric_cols)
-
-            if selected_vars:
-                st.session_state.selected_vars = selected_vars
-                st.success(f"Variabel terpilih: {', '.join(selected_vars)}")
-            else:
-                st.warning("Pilih minimal satu variabel numerik untuk diproses.")
 
             # Format tanggal
             df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y %H:%M').dt.strftime('%d/%m/%Y')
@@ -83,14 +72,29 @@ elif menu == "INPUT DATA 📁":
             df.index = pd.to_datetime(df.index, dayfirst=True)
             df = df.sort_index()
 
-            # Tampilkan hasil
+            # Simpan ke session
+            st.session_state.df = df.copy()
+
             st.subheader("🔍 Data Setelah Diproses")
             st.dataframe(df)
 
-            # Pilih kolom untuk divisualisasikan
-            st.subheader("📈 Visualisasi Time Series")
-            selected_col = st.selectbox("Pilih kolom mata uang:", df.columns.tolist())
-            st.line_chart(df[selected_col])
+            # Pilih variabel numerik
+            numeric_cols = df.select_dtypes(include='number').columns.tolist()
+
+            if not numeric_cols:
+                st.error("❌ Tidak ditemukan kolom numerik setelah pembersihan.")
+            else:
+                selected_vars = st.multiselect("Pilih variabel mata uang yang ingin diproses:", numeric_cols)
+
+                if selected_vars:
+                    st.session_state.selected_vars = selected_vars
+                    st.success(f"Variabel terpilih: {', '.join(selected_vars)}")
+                else:
+                    st.warning("Pilih minimal satu variabel numerik untuk diproses.")
+
+                # Visualisasi pertama (opsional)
+                selected_chart = st.selectbox("Pilih salah satu untuk ditampilkan grafik:", selected_vars)
+                st.line_chart(df[selected_chart])
 
         except Exception as e:
             st.error(f"Terjadi kesalahan saat membaca data: {e}")
