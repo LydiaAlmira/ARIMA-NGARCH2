@@ -464,15 +464,22 @@ elif menu == "GARCH (Model)":
     archlm_rows = []
 
     for name, result in garch_fits.items():
-        resid = result.std_resid.dropna()  # ✅ pakai standardized residual
+        resid = result.resid.dropna()
+
+        # Ljung-Box
         lb = acorr_ljungbox(resid, lags=[10], return_df=True)
+        lb_stat = float(lb['lb_stat'].iloc[0])
+        lb_p = float(lb['lb_pvalue'].iloc[0])
+
+        # ARCH LM
         arch_stat, arch_p, _, _ = het_arch(resid)
+        arch_p = float(arch_p)
 
         ljungbox_rows.append({
             'Model': name,
-            'LB Stat': round(lb['lb_stat'].iloc[0], 4),
-            'p-value': round(lb['lb_pvalue'].iloc[0], 4),
-            'Keterangan': 'Tidak ada autokorelasi' if lb['lb_pvalue'].iloc[0] > 0.05 else 'Ada autokorelasi'
+            'LB Stat': round(lb_stat, 4),
+            'p-value': round(lb_p, 4),
+            'Keterangan': 'Tidak ada autokorelasi' if lb_p > 0.05 else 'Ada autokorelasi'
         })
 
         archlm_rows.append({
@@ -517,15 +524,16 @@ elif menu == "GARCH (Model)":
 
     nonlinear_results = []
     for name, result in garch_fits.items():
-        resid = result.std_resid.dropna()  # ✅ tetap pakai standardized residual
+        resid = result.std_resid.dropna()
         res = neural_test_squared_resid(resid)
         res['Model'] = name
         nonlinear_results.append(res)
 
+    st.markdown("📊 Hasil Uji Non-Linearitas (Terasvirta Neural Test):")
     st.dataframe(pd.DataFrame(nonlinear_results)[['Model', 'F-statistic', 'p-value', 'Kesimpulan']])
 
-    st.success("Analisis GARCH selesai. Siap lanjut ke NGARCH 🚀")
-
+    st.success("✅ Analisis GARCH selesai. Siap lanjut ke NGARCH 🚀")
+    
 
 elif menu == "NGARCH (Model & Prediksi)":
     st.header("NGARCH Model & Prediksi")
