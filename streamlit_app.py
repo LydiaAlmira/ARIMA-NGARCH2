@@ -405,7 +405,7 @@ elif menu == "ARIMA (Model & Prediksi)":
     st.success("Residual analysis selesai. Siap lanjut ke pemodelan GARCH!")
 
 
-if menu == "GARCH (Model & Prediksi)":
+elif menu == "GARCH (Model & Prediksi)":
     st.header("📉 GARCH Modeling & Prediction")
     st.write("Analisis volatilitas dengan model GARCH, evaluasi residual, dan uji non-linearitas.")
 
