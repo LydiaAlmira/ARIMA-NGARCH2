@@ -396,97 +396,92 @@ elif menu == "ARIMA (Model & Prediksi)":
     st.success("Residual analysis selesai. Siap lanjut ke pemodelan GARCH!")
 
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-from statsmodels.stats.diagnostic import het_arch, acorr_ljungbox
-from arch import arch_model
-import statsmodels.api as sm
+elif menu == "GARCH (Model & Prediksi)":
+    st.header("📉 GARCH Modeling & Prediction")
+    st.write("Analisis volatilitas dengan model GARCH, evaluasi residual, dan uji non-linearitas.")
 
-# === GARCH Section ===
-if menu == "GARCH (Model & Prediksi)":
-    st.header("📈 GARCH Model & Prediksi")
-    st.write("Pemodelan volatilitas return dengan GARCH berdasarkan residual ARIMA")
+    from arch import arch_model
+    from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+    from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch
+    import statsmodels.api as sm
 
+    # Ambil residual dari ARIMA yang signifikan
     if 'model_fits_signifikan' not in st.session_state:
-        st.warning("Pastikan Anda sudah menjalankan ARIMA dan menyimpan model residualnya.")
+        st.warning("Silakan jalankan ARIMA terlebih dahulu.")
     else:
-        model_fits_signifikan = st.session_state.model_fits_signifikan
-        train_data = st.session_state.train_data
+        model_fits = st.session_state.model_fits_signifikan
+        currencies = list(model_fits.keys())
 
-        st.subheader("1️⃣ ACF/PACF Residual Kuadrat")
-        for currency, arima_model in model_fits_signifikan.items():
-            resid = arima_model.resid.dropna()
-            squared_resid = resid ** 2
+        st.subheader("1️⃣ ACF & PACF dari Residual Kuadrat ARIMA")
+        for currency in currencies:
+            residuals = model_fits[currency].resid.dropna()
+            squared_resid = residuals ** 2
 
             fig, ax = plt.subplots(1, 2, figsize=(12, 4))
-            plot_acf(squared_resid, lags=20, ax=ax[0])
-            ax[0].set_title(f"ACF Residual Kuadrat - {currency}")
+            plot_acf(squared_resid, ax=ax[0], lags=20)
+            ax[0].set_title(f"ACF Squared Residual - {currency}")
 
-            plot_pacf(squared_resid, lags=20, ax=ax[1])
-            ax[1].set_title(f"PACF Residual Kuadrat - {currency}")
+            plot_pacf(squared_resid, ax=ax[1], lags=20)
+            ax[1].set_title(f"PACF Squared Residual - {currency}")
 
-            fig.suptitle(f"ACF & PACF Residual Kuadrat - {currency}", fontsize=14)
             st.pyplot(fig)
 
-        st.subheader("2️⃣ Pilih Orde GARCH(p,q)")
+        st.subheader("2️⃣ Pilih Orde GARCH untuk Setiap Mata Uang")
         garch_orders = {}
-        currencies = ['IDR', 'MYR', 'SGD']
-        for currency in currencies:
-            col1, col2 = st.columns(2)
-            with col1:
-                p = st.number_input(f"Orde p (GARCH) untuk {currency}", min_value=1, max_value=3, value=1, key=f"p_{currency}")
-            with col2:
-                q = st.number_input(f"Orde q (ARCH) untuk {currency}", min_value=1, max_value=3, value=1, key=f"q_{currency}")
-            garch_orders[currency] = (p, q)
+        default_options = {
+            'IDR': [(1, 1), (1, 2), (2, 1)],
+            'MYR': [(1, 1), (1, 2), (2, 1)],
+            'SGD': [(1, 1)]
+        }
 
-        st.subheader("3️⃣ Estimasi Model GARCH")
+        for currency in currencies:
+            options = default_options.get(currency, [(1, 1)])
+            selected_order = st.selectbox(
+                f"Pilih (p,q) GARCH untuk {currency}", options, key=f"garch_order_{currency}"
+            )
+            garch_orders[currency] = selected_order
+
+        st.subheader("3️⃣ Estimasi Parameter GARCH")
         garch_fits = {}
-        for currency in currencies:
-            resid = model_fits_signifikan[currency].resid.dropna()
-            p, q = garch_orders[currency]
-            try:
-                model = arch_model(resid, vol='GARCH', p=p, q=q, mean='Zero')
-                fit = model.fit(disp='off')
-                garch_fits[f"{currency}_GARCH({p},{q})"] = fit
-                st.markdown(f"#### {currency} - GARCH({p},{q})")
-                st.text(fit.summary())
-            except Exception as e:
-                st.error(f"Gagal memodelkan GARCH({p},{q}) untuk {currency}: {e}")
+        for currency, (p, q) in garch_orders.items():
+            resid = model_fits[currency].resid.dropna()
+            model = arch_model(resid, vol='GARCH', p=p, q=q, mean='Zero')
+            result = model.fit(disp='off')
+            garch_fits[f"{currency}_GARCH({p},{q})"] = result
 
-        st.session_state.garch_fits = garch_fits
+            st.markdown(f"**{currency} - GARCH({p},{q})**")
+            st.text(result.summary())
 
-        st.subheader("4️⃣ Uji Asumsi Residual (Ljung-Box & ARCH-LM)")
-        ljungbox_results = []
-        archlm_results = []
+        st.session_state.garch_fits = garch_fits  # simpan untuk evaluasi selanjutnya
 
-        for model_name, garch_fit in garch_fits.items():
-            resid = garch_fit.resid.dropna()
+        st.subheader("4️⃣ Uji Asumsi Residual GARCH (Ljung-Box & ARCH LM)")
+        ljungbox_rows = []
+        archlm_rows = []
+
+        for name, result in garch_fits.items():
+            resid = result.resid.dropna()
             lb = acorr_ljungbox(resid, lags=[10], return_df=True)
-            lb_stat = lb['lb_stat'].iloc[0]
-            lb_p = lb['lb_pvalue'].iloc[0]
-            ljungbox_results.append({
-                'Model': model_name,
-                'LB Stat': round(lb_stat, 4),
-                'p-value': round(lb_p, 4),
-                'Keterangan': 'Tidak ada autokorelasi' if lb_p > 0.05 else 'Ada autokorelasi'
+            arch_stat, arch_p, _, _ = het_arch(resid)
+
+            ljungbox_rows.append({
+                'Model': name,
+                'LB Stat': round(lb['lb_stat'].iloc[0], 4),
+                'p-value': round(lb['lb_pvalue'].iloc[0], 4),
+                'Keterangan': 'Tidak ada autokorelasi' if lb['lb_pvalue'].iloc[0] > 0.05 else 'Ada autokorelasi'
             })
 
-            arch_stat, arch_p, _, _ = het_arch(resid)
-            archlm_results.append({
-                'Model': model_name,
-                'ARCH Stat': round(arch_stat, 4),
+            archlm_rows.append({
+                'Model': name,
+                'ARCH-LM Stat': round(arch_stat, 4),
                 'p-value': round(arch_p, 4),
                 'Keterangan': 'Tidak ada heteroskedastisitas' if arch_p > 0.05 else 'Ada heteroskedastisitas'
             })
 
-        st.markdown("### Hasil Uji Ljung-Box Residual GARCH")
-        st.dataframe(pd.DataFrame(ljungbox_results))
+        st.markdown("📊 Hasil Uji Ljung-Box:")
+        st.dataframe(pd.DataFrame(ljungbox_rows))
 
-        st.markdown("### Hasil Uji ARCH-LM Residual GARCH")
-        st.dataframe(pd.DataFrame(archlm_results))
+        st.markdown("📊 Hasil Uji ARCH-LM:")
+        st.dataframe(pd.DataFrame(archlm_rows))
 
         st.subheader("5️⃣ Uji Non-Linearitas (Terasvirta Neural Test)")
 
@@ -494,36 +489,36 @@ if menu == "GARCH (Model & Prediksi)":
             resid_sq = residuals ** 2
             lagged_resid = pd.concat([resid_sq.shift(i) for i in range(1, lags + 1)], axis=1)
             lagged_resid.columns = [f"Lag_{i}" for i in range(1, lags + 1)]
+
             data = pd.concat([resid_sq, lagged_resid], axis=1).dropna()
             y = data.iloc[:, 0]
             X = data.iloc[:, 1:]
+
             X['Lag1_sq'] = X.iloc[:, 0] ** 2
             X['Lag1_cube'] = X.iloc[:, 0] ** 3
+
             X_linear = sm.add_constant(X.iloc[:, :lags])
             model_linear = sm.OLS(y, X_linear).fit()
+
             X_full = sm.add_constant(X)
             model_nonlinear = sm.OLS(y, X_full).fit()
-            f_stat, p_value, df_diff = model_nonlinear.compare_f_test(model_linear)
+
+            f_stat, p_value, _ = model_nonlinear.compare_f_test(model_linear)
             return {
-                "F-statistic": f_stat,
-                "p-value": p_value,
-                "df_diff": df_diff,
-                "Kesimpulan": "Ada non-linearitas" if p_value < 0.05 else "Tidak ada non-linearitas"
+                'F-statistic': round(f_stat, 4),
+                'p-value': round(p_value, 4),
+                'Kesimpulan': 'Ada non-linearitas' if p_value < 0.05 else 'Tidak ada non-linearitas'
             }
 
         nonlinear_results = []
-        for currency in currencies:
-            key = f"{currency}_GARCH({garch_orders[currency][0]},{garch_orders[currency][1]})"
-            if key in garch_fits:
-                resid = garch_fits[key].std_resid.dropna()
-                result = neural_test_squared_resid(resid)
-                result['Mata Uang'] = currency
-                nonlinear_results.append(result)
+        for name, result in garch_fits.items():
+            resid = result.std_resid.dropna()
+            res = neural_test_squared_resid(resid)
+            res['Model'] = name
+            nonlinear_results.append(res)
 
-        df_nonlinear = pd.DataFrame(nonlinear_results)[['Mata Uang', 'F-statistic', 'p-value', 'Kesimpulan']]
-        st.dataframe(df_nonlinear)
-
-        st.success("GARCH modeling selesai. Siap lanjut ke NGARCH.")
+        st.dataframe(pd.DataFrame(nonlinear_results)[['Model', 'F-statistic', 'p-value', 'Kesimpulan']])
+        st.success("Analisis GARCH selesai. Siap lanjut ke NGARCH 🚀")
 
 
 elif menu == "NGARCH (Model & Prediksi)":
