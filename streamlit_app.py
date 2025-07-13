@@ -218,8 +218,145 @@ elif menu == "DATA PREPROCESSING 🧹":
 
 
 elif menu == "ARIMA (Model & Prediksi)":
-    st.header("ARIMA Model & Prediksi")
-    st.write("... kode ARIMA, prediksi & evaluasi ...")
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import pandas as pd
+    import numpy as np
+    from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+    from statsmodels.tsa.arima.model import ARIMA
+    from statsmodels.stats.diagnostic import acorr_ljungbox
+    from scipy.stats import jarque_bera
+    from datetime import timedelta
+
+    st.header("📈 ARIMA Modeling & Forecasting")
+    st.write("Model ARIMA untuk memodelkan log-return nilai tukar dan prediksi harga.")
+
+    if 'train_data' not in st.session_state:
+        st.warning("Silakan lakukan preprocessing data terlebih dahulu.")
+        st.stop()
+
+    train_data = st.session_state.train_data
+    test_data = st.session_state.test_data
+    df = st.session_state.df_processed
+    currencies = list(train_data.keys())
+
+    st.subheader("1️⃣ Identifikasi Model (ACF & PACF)")
+    for currency in currencies:
+        st.markdown(f"#### {currency}")
+        fig, ax = plt.subplots(1, 2, figsize=(12, 4))
+        plot_acf(train_data[currency], ax=ax[0], lags=20)
+        ax[0].set_title(f"ACF {currency} Return")
+        plot_pacf(train_data[currency], ax=ax[1], lags=20)
+        ax[1].set_title(f"PACF {currency} Return")
+        st.pyplot(fig)
+
+    st.subheader("2️⃣ Pemilihan Model Berdasarkan AIC")
+    candidate_orders = [(1, 0, 0), (0, 0, 1), (1, 0, 1), (2, 0, 1), (1, 0, 2), (2, 0, 2)]
+    best_models = []
+
+    for currency in currencies:
+        best_aic = float('inf')
+        best_order = None
+        for order in candidate_orders:
+            try:
+                model = ARIMA(train_data[currency], order=order).fit()
+                if model.aic < best_aic:
+                    best_aic = model.aic
+                    best_order = order
+            except:
+                continue
+        best_models.append({'Mata Uang': currency, 'Order': f'ARIMA{best_order}', 'AIC': round(best_aic, 2)})
+
+    df_best_arima = pd.DataFrame(best_models)
+    st.dataframe(df_best_arima)
+
+    st.subheader("3️⃣ Uji Asumsi Residual (Ljung-Box & Jarque-Bera)")
+    model_config = {
+        'IDR': (2, 0, 1),
+        'MYR': (1, 0, 1),
+        'SGD': (1, 0, 0)
+    }
+    ljungbox_results, jb_results = [], []
+    model_fits = {}
+
+    for currency, order in model_config.items():
+        model = ARIMA(train_data[currency], order=order).fit()
+        model_fits[currency] = model
+
+        resid = model.resid.dropna()
+        lb_test = acorr_ljungbox(resid, lags=[10], return_df=True)
+        jb_stat, jb_pvalue = jarque_bera(resid)
+
+        ljungbox_results.append({
+            'Mata Uang': currency,
+            'Model': f'ARIMA{order}',
+            'Ljung-Box Stat': lb_test['lb_stat'].values[0],
+            'p-value': lb_test['lb_pvalue'].values[0],
+            'Autokorelasi': 'Tidak' if lb_test['lb_pvalue'].values[0] > 0.05 else 'Ada'
+        })
+
+        jb_results.append({
+            'Mata Uang': currency,
+            'Model': f'ARIMA{order}',
+            'JB Stat': f"{jb_stat:.2f}",
+            'p-value': f"{jb_pvalue:.4f}" if jb_pvalue >= 0.0001 else '0.0000',
+            'Normalitas': 'Normal' if jb_pvalue > 0.05 else 'Tidak Normal'
+        })
+
+    st.markdown("#### Hasil Uji Ljung-Box")
+    st.dataframe(pd.DataFrame(ljungbox_results))
+    st.markdown("#### Hasil Uji Jarque-Bera")
+    st.dataframe(pd.DataFrame(jb_results))
+
+    st.subheader("4️⃣ Prediksi Test Data (30 Hari Terakhir)")
+    result_price_all = {}
+
+    for currency in currencies:
+        forecast_return = model_fits[currency].forecast(steps=len(test_data[currency]))
+        last_price = df.loc[train_data[currency].index[-1], currency]
+        forecast_price = last_price * np.exp(np.cumsum(forecast_return))
+        actual_price = df.loc[test_data[currency].index, currency]
+
+        result_df = pd.DataFrame({
+            'Actual': actual_price.values,
+            'Forecast': forecast_price.values
+        }, index=test_data[currency].index)
+
+        result_price_all[currency] = result_df
+
+        st.markdown(f"#### {currency}: Harga Aktual vs Prediksi")
+        st.line_chart(result_df)
+
+    st.subheader("📊 Evaluasi Akurasi (MAPE)")
+    def mean_absolute_percentage_error(y_true, y_pred):
+        y_true, y_pred = np.array(y_true), np.array(y_pred)
+        nonzero = y_true != 0
+        return np.mean(np.abs((y_true[nonzero] - y_pred[nonzero]) / y_true[nonzero])) * 100
+
+    mape_scores = {currency: mean_absolute_percentage_error(df_['Actual'], df_['Forecast'])
+                   for currency, df_ in result_price_all.items()}
+    st.dataframe(pd.DataFrame.from_dict(mape_scores, orient='index', columns=['MAPE (%)']))
+
+    st.subheader("5️⃣ Prediksi Harga 30 Hari ke Depan")
+    future_dates = pd.date_range(start=df.index[-1] + timedelta(days=1), periods=30, freq='D')
+    future_preds = {}
+
+    for currency in currencies:
+        forecast_return = model_fits[currency].forecast(steps=30)
+        last_price = df.loc[train_data[currency].index[-1], currency]
+        future_price = last_price * np.exp(np.cumsum(forecast_return))
+        future_preds[currency] = future_price
+
+    forecast_df = pd.DataFrame({
+        'Tanggal': future_dates,
+        'Prediksi Harga IDR': future_preds['IDR'].values,
+        'Prediksi Harga MYR': future_preds['MYR'].values,
+        'Prediksi Harga SGD': future_preds['SGD'].values,
+    })
+
+    st.dataframe(forecast_df)
+    st.line_chart(forecast_df.set_index('Tanggal'))
+
 
 elif menu == "GARCH (Model & Prediksi)":
     st.header("GARCH Model & Prediksi")
