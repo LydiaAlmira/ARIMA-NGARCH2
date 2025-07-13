@@ -17,6 +17,7 @@ menu = st.sidebar.radio(
         "ARIMA (Model & Prediksi)",
         "GARCH (Model)",
         "NGARCH (Model & Prediksi)",
+        "ARIMA-NGARCH (Prediksi)",
     ]
 )
 
@@ -39,6 +40,7 @@ if menu == "HOME 🏠":
         - Evaluasi performa (RMSE, MAE, MAPE)
     - **GARCH (Model)**: GARCH pada residual ARIMA.
     - **NGARCH (Model & Prediksi)**: Volatilitas lanjutan.
+    - **ARIMA-NGARCH (Prediksi)**
     """)
 
 elif menu == "INPUT DATA 📁":
@@ -641,4 +643,104 @@ elif menu == "NGARCH (Model & Prediksi)":
     st.write(f"**RMSE**: {rmse:.8f}")
     st.write(f"**MAE**: {mae:.8f}")
 
+
+elif menu == "ARIMA-NGARCH (Prediksi)":
+    st.header("🔁 NGARCH(1,1) Modeling & Forecast")
+    st.write("Estimasi volatilitas dengan model NGARCH menggunakan Maximum Likelihood Estimation.")
+
+    import pandas as pd
+    import numpy as np
+    from scipy.optimize import minimize
+    from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch
+    from scipy.stats import probplot
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    from sklearn.metrics import mean_squared_error, mean_absolute_error
+
+    # Ambil data dari ARIMA/GARCH
+    if 'train_data' not in st.session_state or 'test_data' not in st.session_state:
+        st.warning("Pastikan data telah diolah di ARIMA atau GARCH terlebih dahulu.")
+        st.stop()
+
+    train_data = st.session_state.train_data
+    test_data = st.session_state.test_data
+
+    returns_all = pd.concat([train_data['SGD'], test_data['SGD']]).reset_index(drop=True)
+    returns_all = returns_all.dropna()
+
+    # Log-likelihood NGARCH
+    def ngarch_loglik(params, returns):
+        omega, alpha, beta, gamma = params
+        T = len(returns)
+        h = np.zeros(T)
+        h[0] = np.var(returns)
+
+        for t in range(1, T):
+            h[t] = omega + alpha * (returns[t-1] - gamma * np.sqrt(h[t-1]))**2 + beta * h[t-1]
+
+        h = np.maximum(h, 1e-8)
+        ll = -0.5 * (np.log(2*np.pi) + np.log(h) + (returns**2)/h)
+        return -np.sum(ll)
+
+    # Parameter hasil estimasi untuk SGD (update dari kamu)
+    omega = 1.584393e-07
+    alpha = 0.0500
+    beta = 0.9300
+    gamma = -0.0146
+
+    st.subheader("1️⃣ Estimasi Parameter NGARCH(1,1)")
+    st.text(f"omega : {omega:.6e}\nalpha : {alpha:.4f}\nbeta  : {beta:.4f}\ngamma : {gamma:.4f}\n")
+
+    # Hitung h(t)
+    T = len(returns_all)
+    h = np.zeros(T)
+    h[0] = np.var(returns_all)
+
+    for t in range(1, T):
+        eps_prev = returns_all.iloc[t - 1]
+        h[t] = omega + alpha * (eps_prev - gamma * np.sqrt(h[t - 1]))**2 + beta * h[t - 1]
+
+    h = np.maximum(h, 1e-8)
+    std_resid_ngarch = returns_all / np.sqrt(h)
+
+    st.subheader("2️⃣ Uji Asumsi Residual NGARCH")
+    resid = std_resid_ngarch
+    resid_sq = resid ** 2
+
+    fig, ax = plt.subplots(1, 2, figsize=(12, 5))
+    sns.histplot(resid, kde=True, bins=30, ax=ax[0], color='lightblue')
+    ax[0].set_title("Histogram + KDE Residual Standar")
+    probplot(resid, dist="norm", plot=ax[1])
+    ax[1].set_title("QQ-Plot Residual Standar")
+    st.pyplot(fig)
+
+    st.write("\n**Ljung-Box Test (lag=10):**")
+    lb_test = acorr_ljungbox(resid_sq, lags=[10], return_df=True)
+    st.dataframe(lb_test)
+
+    arch_stat, arch_p, _, _ = het_arch(resid)
+    arch_ket = 'Tidak ada efek ARCH residual' if arch_p > 0.05 else 'Ada efek ARCH residual'
+    st.markdown(f"**ARCH-LM Test:** p-value = {arch_p:.4f} → {arch_ket}")
+
+    st.subheader("3️⃣ Prediksi Volatilitas Data Test (30 Hari)")
+    forecasted_vol_test = np.sqrt(h[-30:])
+    st.line_chart(pd.Series(forecasted_vol_test, name="Volatilitas", index=range(1, 31)))
+
+    st.subheader("4️⃣ Prediksi Volatilitas ke Depan (30 Hari)")
+    n_forecast = 30
+    h_future = np.zeros(n_forecast)
+    h_future[0] = h[-1]
+    for t in range(1, n_forecast):
+        h_future[t] = omega + alpha * (-gamma * np.sqrt(h_future[t-1]))**2 + beta * h_future[t-1]
+
+    forecasted_vol_future = np.sqrt(h_future)
+    st.line_chart(pd.Series(forecasted_vol_future, name="Prediksi Vol ke Depan"))
+
+    st.subheader("5️⃣ Evaluasi Akurasi Prediksi")
+    realized_var = test_data['SGD'] ** 2
+    forecasted_var = forecasted_vol_test ** 2
+    rmse = np.sqrt(mean_squared_error(realized_var, forecasted_var))
+    mae = mean_absolute_error(realized_var, forecasted_var)
+    st.write(f"**RMSE**: {rmse:.8f}")
+    st.write(f"**MAE**: {mae:.8f}")
 
