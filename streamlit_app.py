@@ -223,7 +223,7 @@ elif menu == "ARIMA (Model & Prediksi)":
     import numpy as np
     from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
     from statsmodels.tsa.arima.model import ARIMA
-    from statsmodels.stats.diagnostic import acorr_ljungbox
+    from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch
     from scipy.stats import jarque_bera
     from datetime import timedelta
 
@@ -354,6 +354,47 @@ elif menu == "ARIMA (Model & Prediksi)":
     forecast_df.insert(0, 'Tanggal', future_dates)
     st.dataframe(forecast_df)
     st.line_chart(forecast_df.set_index('Tanggal'))
+
+    st.subheader("7️⃣ Residual Diagnostics (ACF/PACF & Uji ARCH-LM)")
+    arch_lm_results = []
+
+    model_config = st.session_state.arima_orders  # Ambil konfigurasi ARIMA
+
+    for currency, order in model_config.items():
+        st.markdown(f"#### Residual Analysis - {currency} (ARIMA{order})")
+
+        series = train_data[currency]
+        model = ARIMA(series, order=order).fit()
+        residuals = model.resid.dropna()
+
+        # Plot ACF dan PACF
+        fig, ax = plt.subplots(1, 2, figsize=(12, 4))
+        plot_acf(residuals, lags=20, ax=ax[0])
+        ax[0].set_title(f"ACF Residual - {currency}")
+
+        plot_pacf(residuals, lags=20, ax=ax[1])
+        ax[1].set_title(f"PACF Residual - {currency}")
+
+        fig.suptitle(f"ACF & PACF Residual - ARIMA{order} (Return {currency})", fontsize=14)
+        st.pyplot(fig)
+
+        # Uji ARCH LM
+        arch_stat, arch_pvalue, _, _ = het_arch(residuals)
+        arch_lm_results.append({
+            'Mata Uang': currency,
+            'ARCH Stat': f"{arch_stat:.2f}",
+            'p-value': f"{arch_pvalue:.4f}" if arch_pvalue >= 0.0001 else '<0.0001',
+            'Keterangan': (
+                'Tidak Ada Efek ARCH' if arch_pvalue > 0.05 else 'Ada Efek ARCH'
+            )
+        })
+
+    arch_lm_df = pd.DataFrame(arch_lm_results)
+    st.markdown("### Hasil Uji ARCH LM pada Residual Model ARIMA (Return)")
+    st.dataframe(arch_lm_df)
+
+    st.success("Residual analysis selesai. Siap lanjut ke pemodelan GARCH!")
+
 
 elif menu == "GARCH (Model & Prediksi)":
     st.header("GARCH Model & Prediksi")
