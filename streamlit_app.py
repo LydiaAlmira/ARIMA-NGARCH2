@@ -48,13 +48,29 @@ if menu == "HOME 🏠":
     """)
 
 elif menu == "INPUT DATA 📁":
-    st.header("📁 Input Data")
-    uploaded_file = st.file_uploader("Upload file CSV berisi data nilai tukar:", type="csv")
+    st.header("📁 Input Data Nilai Tukar")
+    
+    uploaded_file = st.file_uploader("Upload file CSV berisi data time series nilai tukar:", type="csv")
+
     if uploaded_file is not None:
         import pandas as pd
         df = pd.read_csv(uploaded_file)
-        st.write("Preview Data:")
+
+        st.subheader("🔍 Data Preview")
         st.dataframe(df)
+
+        # Coba cari kolom numerik untuk diplot
+        numeric_cols = df.select_dtypes(include='number').columns.tolist()
+
+        if numeric_cols:
+            st.subheader("📈 Visualisasi Data (Line Chart)")
+            selected_col = st.selectbox("Pilih kolom yang ingin divisualisasikan:", numeric_cols)
+            st.line_chart(df[selected_col])
+        else:
+            st.warning("Tidak ditemukan kolom numerik untuk divisualisasikan.")
+    else:
+        st.info("Silakan unggah file CSV terlebih dahulu.")
+
 
 elif menu == "DATA PREPROCESSING 🧹":
     st.header("🧹 Preprocessing Data")
