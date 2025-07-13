@@ -655,8 +655,8 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
     import pandas as pd
     from sklearn.metrics import mean_squared_error, mean_absolute_error
     if 'arima_fits' not in st.session_state or 'train_data' not in st.session_state or 'test_data' not in st.session_state:
-    st.error("Silakan jalankan ARIMA terlebih dahulu.")
-    st.stop()
+        st.error("Silakan jalankan ARIMA terlebih dahulu.")
+        st.stop()
 
     model_fits_all = st.session_state.arima_fits
     train_data = st.session_state.train_data
