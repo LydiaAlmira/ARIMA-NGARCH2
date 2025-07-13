@@ -644,103 +644,85 @@ elif menu == "NGARCH (Model & Prediksi)":
     st.write(f"**MAE**: {mae:.8f}")
 
 
-elif menu == "ARIMA-NGARCH (Prediksi)":
-    st.header("🔁 NGARCH(1,1) Modeling & Forecast")
-    st.write("Estimasi volatilitas dengan model NGARCH menggunakan Maximum Likelihood Estimation.")
+elif menu == "ARIMA + NGARCH":
+    st.header("🔀 Kombinasi ARIMA + NGARCH")
+    st.write("Prediksi harga dengan ARIMA dan band volatilitas dari NGARCH.")
 
-    import pandas as pd
     import numpy as np
-    from scipy.optimize import minimize
-    from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch
-    from scipy.stats import probplot
-    import matplotlib.pyplot as plt
-    import seaborn as sns
+    import pandas as pd
     from sklearn.metrics import mean_squared_error, mean_absolute_error
 
-    # Ambil data dari ARIMA/GARCH
-    if 'train_data' not in st.session_state or 'test_data' not in st.session_state:
-        st.warning("Pastikan data telah diolah di ARIMA atau GARCH terlebih dahulu.")
+    if 'train_data' not in st.session_state or 'test_data' not in st.session_state or 'model_fits_signifikan' not in st.session_state:
+        st.warning("Pastikan ARIMA, GARCH, dan NGARCH telah dijalankan.")
         st.stop()
 
     train_data = st.session_state.train_data
     test_data = st.session_state.test_data
+    model_fits_signifikan = st.session_state.model_fits_signifikan
+    df = st.session_state.df
 
-    returns_all = pd.concat([train_data['SGD'], test_data['SGD']]).reset_index(drop=True)
-    returns_all = returns_all.dropna()
+    # PARAMETER NGARCH HASIL ESTIMASI MLE
+    ngarch_params = {
+        'IDR': {'omega': 7.757701e-07, 'alpha': 0.1008, 'beta': 0.8792, 'gamma': 0.0102},
+        'MYR': {'omega': 5.631166e-07, 'alpha1': 0.1157, 'alpha2': 0.1156, 'beta': 0.7374, 'gamma': 0.0382},
+        'SGD': {'omega': 1.584393e-07, 'alpha': 0.0500, 'beta': 0.9300, 'gamma': -0.0146},
+    }
 
-    # Log-likelihood NGARCH
-    def ngarch_loglik(params, returns):
-        omega, alpha, beta, gamma = params
-        T = len(returns)
+    currencies = ['IDR', 'MYR', 'SGD']
+    result_price_all = {}
+
+    for currency in currencies:
+        params = ngarch_params[currency]
+
+        # Gabungkan return train + test
+        returns_all = pd.concat([train_data[currency], test_data[currency]]).reset_index(drop=True)
+        T = len(returns_all)
         h = np.zeros(T)
-        h[0] = np.var(returns)
+        h[0] = np.var(train_data[currency])
 
-        for t in range(1, T):
-            h[t] = omega + alpha * (returns[t-1] - gamma * np.sqrt(h[t-1]))**2 + beta * h[t-1]
+        if currency == 'MYR':
+            alpha1, alpha2 = params['alpha1'], params['alpha2']
+            for t in range(2, T):
+                h[t] = params['omega'] + \
+                       alpha1 * (returns_all[t-1] - params['gamma'] * np.sqrt(h[t-1]))**2 + \
+                       alpha2 * (returns_all[t-2] - params['gamma'] * np.sqrt(h[t-2]))**2 + \
+                       params['beta'] * h[t-1]
+        else:
+            for t in range(1, T):
+                eps_prev = returns_all.iloc[t - 1]
+                h[t] = params['omega'] + params['alpha'] * (eps_prev - params['gamma'] * np.sqrt(h[t - 1]))**2 + params['beta'] * h[t - 1]
 
         h = np.maximum(h, 1e-8)
-        ll = -0.5 * (np.log(2*np.pi) + np.log(h) + (returns**2)/h)
-        return -np.sum(ll)
+        forecasted_vol = np.sqrt(h[-30:])
 
-    # Parameter hasil estimasi untuk SGD (update dari kamu)
-    omega = 1.584393e-07
-    alpha = 0.0500
-    beta = 0.9300
-    gamma = -0.0146
+        # Forecast return dari ARIMA
+        forecast_return = model_fits_signifikan[currency].forecast(steps=len(test_data[currency]))
+        last_train_index = train_data[currency].index[-1]
+        last_price = df.loc[last_train_index, currency]
 
-    st.subheader("1️⃣ Estimasi Parameter NGARCH(1,1)")
-    st.text(f"omega : {omega:.6e}\nalpha : {alpha:.4f}\nbeta  : {beta:.4f}\ngamma : {gamma:.4f}\n")
+        forecast_price = last_price * np.exp(np.cumsum(forecast_return))
+        upper_band = last_price * np.exp(np.cumsum(forecast_return + forecasted_vol))
+        lower_band = last_price * np.exp(np.cumsum(forecast_return - forecasted_vol))
 
-    # Hitung h(t)
-    T = len(returns_all)
-    h = np.zeros(T)
-    h[0] = np.var(returns_all)
+        test_index = test_data[currency].index
+        actual_price = df.loc[test_index, currency]
 
-    for t in range(1, T):
-        eps_prev = returns_all.iloc[t - 1]
-        h[t] = omega + alpha * (eps_prev - gamma * np.sqrt(h[t - 1]))**2 + beta * h[t - 1]
+        result_df = pd.DataFrame({
+            'Actual': actual_price.values,
+            'Forecast': forecast_price.values,
+            'Upper_Band': upper_band.values,
+            'Lower_Band': lower_band.values
+        }, index=test_index)
 
-    h = np.maximum(h, 1e-8)
-    std_resid_ngarch = returns_all / np.sqrt(h)
+        result_price_all[currency] = result_df
 
-    st.subheader("2️⃣ Uji Asumsi Residual NGARCH")
-    resid = std_resid_ngarch
-    resid_sq = resid ** 2
+        st.subheader(f"📈 Hasil Prediksi - {currency}")
+        st.dataframe(result_df)
 
-    fig, ax = plt.subplots(1, 2, figsize=(12, 5))
-    sns.histplot(resid, kde=True, bins=30, ax=ax[0], color='lightblue')
-    ax[0].set_title("Histogram + KDE Residual Standar")
-    probplot(resid, dist="norm", plot=ax[1])
-    ax[1].set_title("QQ-Plot Residual Standar")
-    st.pyplot(fig)
+        rmse = np.sqrt(mean_squared_error(result_df['Actual'], result_df['Forecast']))
+        mae = mean_absolute_error(result_df['Actual'], result_df['Forecast'])
+        mape = np.mean(np.abs((result_df['Actual'] - result_df['Forecast']) / result_df['Actual'])) * 100
 
-    st.write("\n**Ljung-Box Test (lag=10):**")
-    lb_test = acorr_ljungbox(resid_sq, lags=[10], return_df=True)
-    st.dataframe(lb_test)
-
-    arch_stat, arch_p, _, _ = het_arch(resid)
-    arch_ket = 'Tidak ada efek ARCH residual' if arch_p > 0.05 else 'Ada efek ARCH residual'
-    st.markdown(f"**ARCH-LM Test:** p-value = {arch_p:.4f} → {arch_ket}")
-
-    st.subheader("3️⃣ Prediksi Volatilitas Data Test (30 Hari)")
-    forecasted_vol_test = np.sqrt(h[-30:])
-    st.line_chart(pd.Series(forecasted_vol_test, name="Volatilitas", index=range(1, 31)))
-
-    st.subheader("4️⃣ Prediksi Volatilitas ke Depan (30 Hari)")
-    n_forecast = 30
-    h_future = np.zeros(n_forecast)
-    h_future[0] = h[-1]
-    for t in range(1, n_forecast):
-        h_future[t] = omega + alpha * (-gamma * np.sqrt(h_future[t-1]))**2 + beta * h_future[t-1]
-
-    forecasted_vol_future = np.sqrt(h_future)
-    st.line_chart(pd.Series(forecasted_vol_future, name="Prediksi Vol ke Depan"))
-
-    st.subheader("5️⃣ Evaluasi Akurasi Prediksi")
-    realized_var = test_data['SGD'] ** 2
-    forecasted_var = forecasted_vol_test ** 2
-    rmse = np.sqrt(mean_squared_error(realized_var, forecasted_var))
-    mae = mean_absolute_error(realized_var, forecasted_var)
-    st.write(f"**RMSE**: {rmse:.8f}")
-    st.write(f"**MAE**: {mae:.8f}")
-
+        st.markdown(f"**RMSE**: {rmse:.4f}")
+        st.markdown(f"**MAE** : {mae:.4f}")
+        st.markdown(f"**MAPE**: {mape:.2f}%")
