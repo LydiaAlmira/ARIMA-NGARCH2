@@ -644,7 +644,7 @@ elif menu == "NGARCH (Model & Prediksi)":
     st.write(f"**MAE**: {mae:.8f}")
 
 
-elif menu == "ARIMA + NGARCH":
+elif menu == "ARIMA-NGARCH (Prediksi)":
     st.header("🔀 Kombinasi ARIMA + NGARCH")
     st.write("Prediksi harga dengan ARIMA dan band volatilitas dari NGARCH.")
 
