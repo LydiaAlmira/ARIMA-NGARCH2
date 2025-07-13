@@ -534,7 +534,7 @@ elif menu == "GARCH (Model)":
     st.success("✅ Analisis GARCH selesai. Siap lanjut ke NGARCH 🚀")
     
 
-elif menu == "NGARCH (Model & Prediksi)H":
+elif menu == "NGARCH (Model & Prediksi)":
     st.header("🔁 NGARCH(1,1) Modeling & Forecast")
     st.write("Estimasi volatilitas dengan model NGARCH(1,1) menggunakan Maximum Likelihood Estimation.")
 
