@@ -740,11 +740,20 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
         # Evaluasi prediksi harga
         from sklearn.metrics import mean_squared_error, mean_absolute_error
 
-        rmse_price = np.sqrt(mean_squared_error(result_df['Actual'], result_df['Forecast']))
-        mae_price = mean_absolute_error(result_df['Actual'], result_df['Forecast'])
-        mape_price = np.mean(np.abs((result_df['Actual'] - result_df['Forecast']) / result_df['Actual'])) * 100
+        # === Tambahkan di bagian evaluasi harga (ARIMA-NGARCH) ===
+        for currency in ['IDR', 'MYR', 'SGD']:
+            if currency not in result_price_all:
+                continue
+            df_eval = result_price_all[currency].copy()
 
-        st.write("📈 **Evaluasi Prediksi Harga:**")
-        st.write(f"**RMSE:** {rmse_price:.4f}")
-        st.write(f"**MAE:** {mae_price:.4f}")
-        st.write(f"**MAPE:** {mape_price:.2f}%")
+            # Pastikan tidak ada NaN dan panjang cocok
+            df_eval = df_eval[['Actual', 'Forecast']].dropna()
+
+            rmse = np.sqrt(mean_squared_error(df_eval['Actual'], df_eval['Forecast']))
+            mae = mean_absolute_error(df_eval['Actual'], df_eval['Forecast'])
+            mape = np.mean(np.abs((df_eval['Actual'] - df_eval['Forecast']) / df_eval['Actual'])) * 100
+
+            st.markdown(f"### 📈 Evaluasi Prediksi Harga - {currency}")
+            st.write(f"**RMSE:** {rmse:.4f}")
+            st.write(f"**MAE:** {mae:.4f}")
+            st.write(f"**MAPE:** {mape:.2f}%")
