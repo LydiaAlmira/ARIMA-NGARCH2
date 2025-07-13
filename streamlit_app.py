@@ -659,7 +659,7 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
     model_fits_signifikan = st.session_state.model_fits_signifikan
     train_data = st.session_state.train_data
     test_data = st.session_state.test_data
-    df = st.session_state.original_df
+    df = st.session_state.df
 
     result_price_all = {}
 
