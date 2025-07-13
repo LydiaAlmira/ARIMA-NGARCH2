@@ -654,6 +654,8 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
     import numpy as np
     import pandas as pd
     from sklearn.metrics import mean_squared_error, mean_absolute_error
+
+    # Pastikan ARIMA dan data tersedia
     if 'arima_fits' not in st.session_state or 'train_data' not in st.session_state or 'test_data' not in st.session_state:
         st.error("Silakan jalankan ARIMA terlebih dahulu.")
         st.stop()
@@ -662,16 +664,17 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
     train_data = st.session_state.train_data
     test_data = st.session_state.test_data
     df = st.session_state.df_processed
+
     result_price_all = {}
 
     for currency in ['IDR', 'MYR', 'SGD']:
         st.subheader(f"🔹 {currency}")
 
-        if currency not in model_fits_signifikan:
+        if currency not in model_fits_all:
             st.warning(f"Model ARIMA untuk {currency} tidak tersedia.")
             continue
 
-        # Ambil parameter NGARCH
+        # Ambil parameter NGARCH (manual sesuai hasil MLE)
         if currency == 'IDR':
             omega, alpha, beta, gamma = 8.7206e-07, 0.1000, 0.8800, 0.0102
             model_type = 'NGARCH(1,1)'
@@ -687,7 +690,7 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
         T = len(returns_all)
         h = np.zeros(T)
 
-        # Hitung volatilitas NGARCH sesuai jenis model
+        # Hitung h(t) NGARCH
         if currency == 'MYR':
             h[0:2] = np.var(train_data[currency])
             for t in range(2, T):
@@ -705,7 +708,7 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
         forecasted_vol = np.sqrt(h[-30:])
 
         # Forecast return ARIMA
-        forecast_return = model_fits_signifikan[currency].forecast(steps=30).reset_index(drop=True)
+        forecast_return = model_fits_all[currency].forecast(steps=30).reset_index(drop=True)
 
         # Ambil harga terakhir dari train
         last_train_index = train_data[currency].index[-1]
