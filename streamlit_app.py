@@ -464,7 +464,7 @@ elif menu == "GARCH (Model)":
     archlm_rows = []
 
     for name, result in garch_fits.items():
-        resid = result.resid.dropna()
+        resid = result.std_resid.dropna()  # ✅ pakai standardized residual
         lb = acorr_ljungbox(resid, lags=[10], return_df=True)
         arch_stat, arch_p, _, _ = het_arch(resid)
 
@@ -517,7 +517,7 @@ elif menu == "GARCH (Model)":
 
     nonlinear_results = []
     for name, result in garch_fits.items():
-        resid = result.std_resid.dropna()
+        resid = result.std_resid.dropna()  # ✅ tetap pakai standardized residual
         res = neural_test_squared_resid(resid)
         res['Model'] = name
         nonlinear_results.append(res)
@@ -525,6 +525,7 @@ elif menu == "GARCH (Model)":
     st.dataframe(pd.DataFrame(nonlinear_results)[['Model', 'F-statistic', 'p-value', 'Kesimpulan']])
 
     st.success("Analisis GARCH selesai. Siap lanjut ke NGARCH 🚀")
+
 
 elif menu == "NGARCH (Model & Prediksi)":
     st.header("NGARCH Model & Prediksi")
