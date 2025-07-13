@@ -313,12 +313,7 @@ elif menu == "ARIMA (Model & Prediksi)":
         if result['p-value'] > 0.05:  # Tidak ada autokorelasi → layak lanjut ke GARCH
             model_fits_signifikan[currency] = model_fits[currency]
 
-    if model_fits_signifikan:
-        st.session_state.model_fits_signifikan = model_fits_signifikan
-        st.success(f"{len(model_fits_signifikan)} mata uang lolos uji Ljung-Box dan siap diproses GARCH.")
-    else:
-        st.warning("Tidak ada mata uang yang lolos uji Ljung-Box. GARCH tidak dapat dijalankan.")
-
+    st.session_state.model_fits_signifikan = model_fits_signifikan
 
     st.subheader("5️⃣ Prediksi Data Test & Evaluasi Akurasi")
     result_price_all = {}
