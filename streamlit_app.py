@@ -536,6 +536,7 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
     import numpy as np
     import pandas as pd
     from sklearn.metrics import mean_squared_error, mean_absolute_error
+    df = st.session_state.df_processed
 
     model_fits_signifikan = st.session_state.get("model_fits_signifikan", {})
     train_data = st.session_state.train_data
