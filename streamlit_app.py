@@ -53,7 +53,16 @@ elif menu == "INPUT DATA 📁":
             # Baca file dengan delimiter ;
             df = pd.read_csv(uploaded_file, delimiter=';')
             st.session_state.df = df.copy()
+       
+            # Pilih variabel yang ingin dianalisis
+            numeric_cols = df.select_dtypes(include='number').columns.tolist()
+            selected_vars = st.multiselect("Pilih variabel mata uang yang ingin diproses:", numeric_cols)
 
+            if selected_vars:
+                st.session_state.selected_vars = selected_vars
+                st.success(f"Variabel terpilih: {', '.join(selected_vars)}")
+            else:
+                st.warning("Pilih minimal satu variabel numerik untuk diproses.")
 
             # Format tanggal
             df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y %H:%M').dt.strftime('%d/%m/%Y')
@@ -98,73 +107,110 @@ elif menu == "DATA PREPROCESSING 🧹":
     st.header("🧹 Data Cleaning, Log-Return & ADF Test")
     st.write("Lakukan pembersihan, transformasi return log, dan uji stasioneritas.")
 
-    # Cek apakah file sudah diinput di halaman sebelumnya
+    # Cek apakah file sudah diinput
     if 'df' not in st.session_state:
         st.warning("Silakan upload data terlebih dahulu di menu INPUT DATA 📁")
+        st.stop()
+
+    if 'selected_vars' not in st.session_state or not st.session_state.selected_vars:
+        st.warning("Silakan pilih variabel yang ingin diproses di INPUT DATA 📁")
+        st.stop()
+
+    df = st.session_state.df.copy()
+    currencies = st.session_state.selected_vars
+
+    st.subheader("🔍 1. Cek Missing dan Duplicate")
+    st.write("Jumlah missing values:")
+    st.dataframe(df.isnull().sum())
+
+    duplicates = df.duplicated()
+    if duplicates.any():
+        st.warning("Ditemukan baris duplikat:")
+        st.dataframe(df[duplicates])
     else:
-        df = st.session_state.df.copy()  # Ambil dari session
+        st.success("✅ Tidak ada duplicated values.")
 
-        st.subheader("🔍 1. Cek Missing dan Duplicate")
-        st.write("Jumlah missing values:")
-        st.write(df.isnull().sum())
+    st.subheader("📊 2. Statistik Deskriptif Harga")
+    try:
+        st.dataframe(df[currencies].describe())
+    except KeyError as e:
+        st.error(f"Error membaca kolom harga: {e}")
+        st.stop()
 
-        duplicates = df.duplicated()
-        if duplicates.any():
-            st.warning("Ditemukan baris duplikat:")
-            st.dataframe(df[duplicates])
-        else:
-            st.success("✅ Tidak ada duplicated values.")
+    st.subheader("🔁 3. Hitung Log-Return & Visualisasi")
 
-        st.subheader("📊 2. Statistik Deskriptif Harga")
-        st.dataframe(df.describe())
+    for currency in currencies:
+        if currency not in df.columns:
+            st.warning(f"Kolom {currency} tidak ditemukan.")
+            continue
 
-        st.subheader("🔁 3. Hitung Log-Return & Visualisasi")
-        currencies = ['IDR', 'MYR', 'SGD']
-        for currency in currencies:
-            if df[currency].max() > 100000:
-                df[currency] = df[currency] / 1000
+        # Penyesuaian skala
+        if df[currency].max() > 100000:
+            df[currency] = df[currency] / 1000
 
-            df[f'{currency}_return'] = np.log(df[currency]).diff()
+        # Hitung log-return
+        df[f'{currency}_return'] = np.log(df[currency]).diff()
 
-            st.markdown(f"##### Log-Return {currency}")
-            st.line_chart(df[f'{currency}_return'].dropna())
+        # Visualisasi
+        st.markdown(f"##### Log-Return {currency}")
+        st.line_chart(df[f'{currency}_return'].dropna())
 
-        st.subheader("📈 4. Statistik Deskriptif Log-Return")
-        for currency in currencies:
-            stats = df[f'{currency}_return'].dropna().describe()
+    st.subheader("📈 4. Statistik Deskriptif Log-Return")
+
+    for currency in currencies:
+        col_name = f"{currency}_return"
+        if col_name in df.columns:
+            stats = df[col_name].dropna().describe()
             st.write(f"**{currency}**")
             st.dataframe(stats.to_frame())
+        else:
+            st.warning(f"Log-return untuk {currency} belum dihitung.")
 
-        st.subheader("✂️ 5. Split Data: Train & Test (terakhir 30 untuk test)")
-        train_data = {}
-        test_data = {}
-        for currency in currencies:
-            return_series = df[f'{currency}_return'].dropna()
-            train = return_series.iloc[:-30]
-            test = return_series.iloc[-30:]
-            train_data[currency] = train
-            test_data[currency] = test
+    st.subheader("✂️ 5. Split Data: Train & Test (30 baris terakhir sebagai test)")
+    train_data = {}
+    test_data = {}
 
-            st.write(f"**{currency}** - Train: {train.shape[0]}, Test: {test.shape[0]}")
+    for currency in currencies:
+        col_name = f"{currency}_return"
+        if col_name not in df.columns:
+            continue
 
-        # Simpan ke session state agar bisa dipakai di ARIMA/GARCH
-        st.session_state.train_data = train_data
-        st.session_state.test_data = test_data
-        st.session_state.df_processed = df
+        return_series = df[col_name].dropna()
+        if len(return_series) < 31:
+            st.warning(f"Data log-return {currency} terlalu pendek untuk split.")
+            continue
 
-        st.subheader("🧪 6. Uji Stasioneritas ADF (log-return train)")
-        for currency in currencies:
-            st.markdown(f"**{currency}**")
-            result = adfuller(train_data[currency])
-            adf_stat = result[0]
-            p_value = result[1]
+        train = return_series.iloc[:-30]
+        test = return_series.iloc[-30:]
 
-            st.write(f"ADF Statistic : {adf_stat:.6f}")
-            st.write(f"p-value       : {p_value:.6f}")
-            if p_value < 0.05:
-                st.success("Data stasioner (tolak H0)")
-            else:
-                st.warning("Data tidak stasioner (gagal tolak H0)")
+        train_data[currency] = train
+        test_data[currency] = test
+
+        st.write(f"**{currency}** - Train: {train.shape[0]}, Test: {test.shape[0]}")
+
+    st.session_state.train_data = train_data
+    st.session_state.test_data = test_data
+    st.session_state.df_processed = df
+
+    st.subheader("🧪 6. Uji Stasioneritas ADF (log-return train)")
+
+    for currency in currencies:
+        if currency not in train_data:
+            st.warning(f"Data train untuk {currency} tidak tersedia.")
+            continue
+
+        st.markdown(f"**{currency}**")
+        result = adfuller(train_data[currency])
+        adf_stat = result[0]
+        p_value = result[1]
+
+        st.write(f"ADF Statistic : {adf_stat:.6f}")
+        st.write(f"p-value       : {p_value:.6f}")
+
+        if p_value < 0.05:
+            st.success("✅ Data stasioner (tolak H0)")
+        else:
+            st.warning("⚠️ Data tidak stasioner (gagal tolak H0)")
 
 
 elif menu == "ARIMA (Model & Prediksi)":
