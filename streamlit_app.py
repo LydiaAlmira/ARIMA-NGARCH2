@@ -645,84 +645,100 @@ elif menu == "NGARCH (Model & Prediksi)":
 
 
 elif menu == "ARIMA-NGARCH (Prediksi)":
-    st.header("🔀 Kombinasi ARIMA + NGARCH")
-    st.write("Prediksi harga dengan ARIMA dan band volatilitas dari NGARCH.")
+    st.header("🔀 Gabungan ARIMA + NGARCH Forecast")
+    st.write("Prediksi harga berdasarkan ARIMA (mean) dan NGARCH (volatilitas).")
 
     import numpy as np
     import pandas as pd
     from sklearn.metrics import mean_squared_error, mean_absolute_error
 
-    if 'train_data' not in st.session_state or 'test_data' not in st.session_state or 'model_fits_signifikan' not in st.session_state:
-        st.warning("Pastikan ARIMA, GARCH, dan NGARCH telah dijalankan.")
+    if 'model_fits_signifikan' not in st.session_state or 'train_data' not in st.session_state:
+        st.warning("Pastikan ARIMA dan data sudah tersedia.")
         st.stop()
 
+    model_fits_signifikan = st.session_state.model_fits_signifikan
     train_data = st.session_state.train_data
     test_data = st.session_state.test_data
-    model_fits_signifikan = st.session_state.model_fits_signifikan
-    df = st.session_state.df
+    df = st.session_state.original_df
 
-    # PARAMETER NGARCH HASIL ESTIMASI MLE
+    result_price_all = {}
+
+    # === Parameter NGARCH hasil estimasi manual (per mata uang) ===
     ngarch_params = {
         'IDR': {'omega': 7.757701e-07, 'alpha': 0.1008, 'beta': 0.8792, 'gamma': 0.0102},
         'MYR': {'omega': 5.631166e-07, 'alpha1': 0.1157, 'alpha2': 0.1156, 'beta': 0.7374, 'gamma': 0.0382},
         'SGD': {'omega': 1.584393e-07, 'alpha': 0.0500, 'beta': 0.9300, 'gamma': -0.0146},
     }
 
-    currencies = ['IDR', 'MYR', 'SGD']
-    result_price_all = {}
+    for currency in ['IDR', 'MYR', 'SGD']:
+        st.subheader(f"📈 Hasil Prediksi: {currency}")
 
-    for currency in currencies:
-        params = ngarch_params[currency]
+        # Ambil return gabungan (log-return)
+        try:
+            returns_all = pd.concat([
+                train_data[f"{currency}_return"],
+                test_data[f"{currency}_return"]
+            ]).reset_index(drop=True)
+        except KeyError:
+            st.error(f"Kolom return {currency}_return tidak ditemukan.")
+            continue
 
-        # Gabungkan return train + test
-        returns_all = pd.concat([train_data[currency], test_data[currency]]).reset_index(drop=True)
         T = len(returns_all)
         h = np.zeros(T)
-        h[0] = np.var(train_data[currency])
+        h[0] = np.var(train_data[f"{currency}_return"])
 
+        # === Hitung NGARCH ===
+        p = 1
         if currency == 'MYR':
-            alpha1, alpha2 = params['alpha1'], params['alpha2']
+            # NGARCH(2,1) khusus MYR
             for t in range(2, T):
-                h[t] = params['omega'] + \
-                       alpha1 * (returns_all[t-1] - params['gamma'] * np.sqrt(h[t-1]))**2 + \
-                       alpha2 * (returns_all[t-2] - params['gamma'] * np.sqrt(h[t-2]))**2 + \
-                       params['beta'] * h[t-1]
+                eps1 = returns_all[t - 1]
+                eps2 = returns_all[t - 2]
+                h[t] = (
+                    ngarch_params[currency]['omega'] +
+                    ngarch_params[currency]['alpha1'] * (eps1 - ngarch_params[currency]['gamma'] * np.sqrt(h[t - 1]))**2 +
+                    ngarch_params[currency]['alpha2'] * (eps2 - ngarch_params[currency]['gamma'] * np.sqrt(h[t - 2]))**2 +
+                    ngarch_params[currency]['beta'] * h[t - 1]
+                )
         else:
             for t in range(1, T):
-                eps_prev = returns_all.iloc[t - 1]
-                h[t] = params['omega'] + params['alpha'] * (eps_prev - params['gamma'] * np.sqrt(h[t - 1]))**2 + params['beta'] * h[t - 1]
+                eps = returns_all[t - 1]
+                h[t] = (
+                    ngarch_params[currency]['omega'] +
+                    ngarch_params[currency]['alpha'] * (eps - ngarch_params[currency]['gamma'] * np.sqrt(h[t - 1]))**2 +
+                    ngarch_params[currency]['beta'] * h[t - 1]
+                )
 
         h = np.maximum(h, 1e-8)
         forecasted_vol = np.sqrt(h[-30:])
 
-        # Forecast return dari ARIMA
-        forecast_return = model_fits_signifikan[currency].forecast(steps=len(test_data[currency]))
-        last_train_index = train_data[currency].index[-1]
-        last_price = df.loc[last_train_index, currency]
+        # === Prediksi ARIMA Return ===
+        forecast_return = model_fits_signifikan[currency].forecast(steps=30)
+
+        # Harga awal dari akhir train
+        last_index = train_data[currency].index[-1]
+        last_price = df.loc[last_index, currency]
 
         forecast_price = last_price * np.exp(np.cumsum(forecast_return))
         upper_band = last_price * np.exp(np.cumsum(forecast_return + forecasted_vol))
         lower_band = last_price * np.exp(np.cumsum(forecast_return - forecasted_vol))
 
         test_index = test_data[currency].index
-        actual_price = df.loc[test_index, currency]
+        actual_price = df.loc[test_index, currency].values[:30]
 
         result_df = pd.DataFrame({
-            'Actual': actual_price.values,
+            'Actual': actual_price,
             'Forecast': forecast_price.values,
             'Upper_Band': upper_band.values,
             'Lower_Band': lower_band.values
-        }, index=test_index)
+        }, index=test_index[:30])
 
         result_price_all[currency] = result_df
-
-        st.subheader(f"📈 Hasil Prediksi - {currency}")
         st.dataframe(result_df)
 
+        # Evaluasi Akurasi
         rmse = np.sqrt(mean_squared_error(result_df['Actual'], result_df['Forecast']))
         mae = mean_absolute_error(result_df['Actual'], result_df['Forecast'])
         mape = np.mean(np.abs((result_df['Actual'] - result_df['Forecast']) / result_df['Actual'])) * 100
 
-        st.markdown(f"**RMSE**: {rmse:.4f}")
-        st.markdown(f"**MAE** : {mae:.4f}")
-        st.markdown(f"**MAPE**: {mape:.2f}%")
+        st.markdown(f"**RMSE:** {rmse:.4f}  |  **MAE:** {mae:.4f}  |  **MAPE:** {mape:.2f}%")
