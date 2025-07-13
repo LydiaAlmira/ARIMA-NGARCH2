@@ -538,7 +538,12 @@ elif menu == "GARCH (Model)":
 elif menu == "NGARCH (Model & Prediksi)":
     st.header("🔁 NGARCH(1,1) Modeling & Forecast")
     st.write("Estimasi volatilitas dengan model NGARCH(1,1) menggunakan Maximum Likelihood Estimation.")
+    if 'model_fits_signifikan' not in st.session_state:
+        st.error("Silakan jalankan ARIMA terlebih dahulu untuk menghasilkan model yang signifikan.")
+        st.stop()
 
+    model_fits_signifikan = st.session_state.model_fits_signifikan
+    
     import pandas as pd
     import numpy as np
     from scipy.optimize import minimize
