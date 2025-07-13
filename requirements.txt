@@ -5,3 +5,5 @@ matplotlib
 statsmodels
 arch
 scikit-learn
+seaborn
+scipy
