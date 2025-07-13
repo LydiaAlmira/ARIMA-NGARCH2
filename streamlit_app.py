@@ -644,105 +644,93 @@ elif menu == "NGARCH (Model & Prediksi)":
 
 
 elif menu == "ARIMA-NGARCH (Prediksi)":
-    st.header("🔀 Gabungan ARIMA + NGARCH Forecast")
-    st.write("Prediksi harga berdasarkan ARIMA (mean) dan NGARCH (volatilitas).")
+    st.title("🔀 ARIMA-NGARCH: Prediksi Harga dan Volatilitas")
 
     import numpy as np
     import pandas as pd
     from sklearn.metrics import mean_squared_error, mean_absolute_error
 
-    if 'model_fits_signifikan' not in st.session_state or 'train_data' not in st.session_state:
-        st.warning("Pastikan ARIMA dan data sudah tersedia.")
-        st.stop()
-
-    model_fits_signifikan = st.session_state.model_fits_signifikan
-    train_data = st.session_state.train_data
-    test_data = st.session_state.test_data
-    df = st.session_state.df_processed  # <- gunakan df_processed karena ada log-return
-    selected_vars = st.session_state.selected_vars
-
     result_price_all = {}
 
-    # Parameter NGARCH manual
-    ngarch_params = {
-        'IDR': {'omega': 7.757701e-07, 'alpha': 0.1008, 'beta': 0.8792, 'gamma': 0.0102},
-        'MYR': {'omega': 5.631166e-07, 'alpha1': 0.1157, 'alpha2': 0.1156, 'beta': 0.7374, 'gamma': 0.0382},
-        'SGD': {'omega': 1.584393e-07, 'alpha': 0.0500, 'beta': 0.9300, 'gamma': -0.0146},
-    }
+    for currency in ['IDR', 'MYR', 'SGD']:
+        st.subheader(f"🔹 {currency}")
 
-    for currency in selected_vars:
-        st.subheader(f"📈 Hasil Prediksi: {currency}")
-
-        # Pastikan return tersedia
-        return_col = f"{currency}_return"
-        if return_col not in train_data or return_col not in test_data:
-            st.error(f"Kolom {return_col} tidak ditemukan. Pastikan preprocessing sudah dilakukan.")
+        if currency not in model_fits_signifikan:
+            st.warning(f"Model ARIMA untuk {currency} tidak tersedia.")
             continue
 
-        # Gabungkan return
-        returns_all = pd.concat([
-            train_data[return_col],
-            test_data[return_col]
-        ]).reset_index(drop=True)
-        returns_all = returns_all.dropna()
+        # Ambil parameter NGARCH
+        if currency == 'IDR':
+            omega, alpha, beta, gamma = 8.7206e-07, 0.1000, 0.8800, 0.0102
+            model_type = 'NGARCH(1,1)'
+        elif currency == 'MYR':
+            omega, alpha1, alpha2, beta, gamma = 7.9481e-07, 0.0906, 0.0905, 0.7300, 0.0382
+            model_type = 'NGARCH(2,1)'
+        elif currency == 'SGD':
+            omega, alpha, beta, gamma = 1.5322e-07, 0.0500, 0.9300, -0.0146
+            model_type = 'NGARCH(1,1)'
 
-        # Hitung varians h(t)
+        # Gabungkan return train + test
+        returns_all = pd.concat([train_data[currency], test_data[currency]]).reset_index(drop=True)
         T = len(returns_all)
         h = np.zeros(T)
-        h[0] = np.var(train_data[return_col])
 
+        # Hitung volatilitas NGARCH sesuai jenis model
         if currency == 'MYR':
+            h[0:2] = np.var(train_data[currency])
             for t in range(2, T):
-                eps1 = returns_all[t - 1]
-                eps2 = returns_all[t - 2]
-                h[t] = (
-                    ngarch_params[currency]['omega'] +
-                    ngarch_params[currency]['alpha1'] * (eps1 - ngarch_params[currency]['gamma'] * np.sqrt(h[t - 1]))**2 +
-                    ngarch_params[currency]['alpha2'] * (eps2 - ngarch_params[currency]['gamma'] * np.sqrt(h[t - 2]))**2 +
-                    ngarch_params[currency]['beta'] * h[t - 1]
-                )
+                eps1 = returns_all.iloc[t - 1]
+                eps2 = returns_all.iloc[t - 2]
+                term1 = alpha1 * (eps1 - gamma * np.sqrt(h[t - 1]))**2
+                term2 = alpha2 * (eps2 - gamma * np.sqrt(h[t - 2]))**2
+                h[t] = omega + term1 + term2 + beta * h[t - 1]
         else:
+            h[0] = np.var(train_data[currency])
             for t in range(1, T):
-                eps = returns_all[t - 1]
-                h[t] = (
-                    ngarch_params[currency]['omega'] +
-                    ngarch_params[currency]['alpha'] * (eps - ngarch_params[currency]['gamma'] * np.sqrt(h[t - 1]))**2 +
-                    ngarch_params[currency]['beta'] * h[t - 1]
-                )
+                eps_prev = returns_all.iloc[t - 1]
+                h[t] = omega + alpha * (eps_prev - gamma * np.sqrt(h[t - 1]))**2 + beta * h[t - 1]
 
-        h = np.maximum(h, 1e-8)
         forecasted_vol = np.sqrt(h[-30:])
 
-        # Prediksi return dari ARIMA
-        if currency not in model_fits_signifikan:
-            st.error(f"Model ARIMA signifikan untuk {currency} tidak tersedia.")
-            continue
+        # Forecast return ARIMA
+        forecast_return = model_fits_signifikan[currency].forecast(steps=30).reset_index(drop=True)
 
-        forecast_return = model_fits_signifikan[currency].forecast(steps=30)
+        # Ambil harga terakhir dari train
+        last_train_index = train_data[currency].index[-1]
+        last_price = df.loc[last_train_index, currency]
 
-        last_index = train_data[return_col].index[-1]
-        last_price = df.loc[last_index, currency]
-
+        # Prediksi harga
         forecast_price = last_price * np.exp(np.cumsum(forecast_return))
-        upper_band = last_price * np.exp(np.cumsum(forecast_return + forecasted_vol))
-        lower_band = last_price * np.exp(np.cumsum(forecast_return - forecasted_vol))
+        upper_band = forecast_price * np.exp(forecasted_vol)
+        lower_band = forecast_price * np.exp(-forecasted_vol)
 
-        test_index = test_data[return_col].index
+        # Harga aktual dari test
+        test_index = test_data[currency].index
         actual_price = df.loc[test_index, currency].values[:30]
 
         result_df = pd.DataFrame({
+            'Hari': range(1, 31),
             'Actual': actual_price,
             'Forecast': forecast_price.values,
             'Upper_Band': upper_band.values,
             'Lower_Band': lower_band.values
-        }, index=test_index[:30])
+        })
 
         result_price_all[currency] = result_df
-        st.dataframe(result_df)
 
-        # Evaluasi Akurasi
-        rmse = np.sqrt(mean_squared_error(result_df['Actual'], result_df['Forecast']))
-        mae = mean_absolute_error(result_df['Actual'], result_df['Forecast'])
-        mape = np.mean(np.abs((result_df['Actual'] - result_df['Forecast']) / result_df['Actual'])) * 100
+        st.markdown(f"📘 **Model:** ARIMA + {model_type}")
+        st.dataframe(result_df, use_container_width=True)
+        st.line_chart(result_df.set_index('Hari')[['Actual', 'Forecast']])
 
-        st.markdown(f"**RMSE:** {rmse:.4f}  |  **MAE:** {mae:.4f}  |  **MAPE:** {mape:.2f}%")
+        # Evaluasi volatilitas
+        realized_var = test_data[currency][:30]**2
+        forecasted_var = forecasted_vol**2
+        rmse = np.sqrt(mean_squared_error(realized_var, forecasted_var))
+        mae = mean_absolute_error(realized_var, forecasted_var)
+        mape = np.mean(np.abs((realized_var - forecasted_var) / realized_var)) * 100
+
+        st.write("📊 **Evaluasi Prediksi Volatilitas (Squared Return vs Variance):**")
+        st.write(f"**RMSE:** {rmse:.6f}")
+        st.write(f"**MAE:** {mae:.6f}")
+        st.write(f"**MAPE:** {mape:.2f}%")
+        st.markdown("---")
