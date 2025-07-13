@@ -659,38 +659,40 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
     model_fits_signifikan = st.session_state.model_fits_signifikan
     train_data = st.session_state.train_data
     test_data = st.session_state.test_data
-    df = st.session_state.df
+    df = st.session_state.df_processed  # <- gunakan df_processed karena ada log-return
+    selected_vars = st.session_state.selected_vars
 
     result_price_all = {}
 
-    # === Parameter NGARCH hasil estimasi manual (per mata uang) ===
+    # Parameter NGARCH manual
     ngarch_params = {
         'IDR': {'omega': 7.757701e-07, 'alpha': 0.1008, 'beta': 0.8792, 'gamma': 0.0102},
         'MYR': {'omega': 5.631166e-07, 'alpha1': 0.1157, 'alpha2': 0.1156, 'beta': 0.7374, 'gamma': 0.0382},
         'SGD': {'omega': 1.584393e-07, 'alpha': 0.0500, 'beta': 0.9300, 'gamma': -0.0146},
     }
 
-    for currency in ['IDR', 'MYR', 'SGD']:
+    for currency in selected_vars:
         st.subheader(f"📈 Hasil Prediksi: {currency}")
 
-        # Ambil return gabungan (log-return)
-        try:
-            returns_all = pd.concat([
-                train_data[f"{currency}_return"],
-                test_data[f"{currency}_return"]
-            ]).reset_index(drop=True)
-        except KeyError:
-            st.error(f"Kolom return {currency}_return tidak ditemukan.")
+        # Pastikan return tersedia
+        return_col = f"{currency}_return"
+        if return_col not in train_data or return_col not in test_data:
+            st.error(f"Kolom {return_col} tidak ditemukan. Pastikan preprocessing sudah dilakukan.")
             continue
 
+        # Gabungkan return
+        returns_all = pd.concat([
+            train_data[return_col],
+            test_data[return_col]
+        ]).reset_index(drop=True)
+        returns_all = returns_all.dropna()
+
+        # Hitung varians h(t)
         T = len(returns_all)
         h = np.zeros(T)
-        h[0] = np.var(train_data[f"{currency}_return"])
+        h[0] = np.var(train_data[return_col])
 
-        # === Hitung NGARCH ===
-        p = 1
         if currency == 'MYR':
-            # NGARCH(2,1) khusus MYR
             for t in range(2, T):
                 eps1 = returns_all[t - 1]
                 eps2 = returns_all[t - 2]
@@ -712,18 +714,21 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
         h = np.maximum(h, 1e-8)
         forecasted_vol = np.sqrt(h[-30:])
 
-        # === Prediksi ARIMA Return ===
+        # Prediksi return dari ARIMA
+        if currency not in model_fits_signifikan:
+            st.error(f"Model ARIMA signifikan untuk {currency} tidak tersedia.")
+            continue
+
         forecast_return = model_fits_signifikan[currency].forecast(steps=30)
 
-        # Harga awal dari akhir train
-        last_index = train_data[currency].index[-1]
+        last_index = train_data[return_col].index[-1]
         last_price = df.loc[last_index, currency]
 
         forecast_price = last_price * np.exp(np.cumsum(forecast_return))
         upper_band = last_price * np.exp(np.cumsum(forecast_return + forecasted_vol))
         lower_band = last_price * np.exp(np.cumsum(forecast_return - forecasted_vol))
 
-        test_index = test_data[currency].index
+        test_index = test_data[return_col].index
         actual_price = df.loc[test_index, currency].values[:30]
 
         result_df = pd.DataFrame({
