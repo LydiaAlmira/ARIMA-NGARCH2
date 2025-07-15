@@ -543,10 +543,28 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
 
     st.header("📊 ARIMA-NGARCH Forecasting")
 
-    currency = selected_currency  # Misalnya "SGD"
+    # === Validasi session_state & ambil data yang dibutuhkan ===
+    if 'selected_currency' not in st.session_state:
+        st.warning("Silakan pilih satu mata uang utama di menu INPUT DATA 📁")
+        st.stop()
+    if 'model_fits_signifikan' not in st.session_state:
+        st.warning("Silakan jalankan ARIMA terlebih dahulu.")
+        st.stop()
+
+    currency = st.session_state.selected_currency
+    model_fits_signifikan = st.session_state.model_fits_signifikan
+
+    if currency not in model_fits_signifikan:
+        st.error(f"Model signifikan untuk {currency} tidak tersedia (Ljung-Box p < 0.05)")
+        st.stop()
+
+    train_data = st.session_state.train_data
+    test_data = st.session_state.test_data
+    df = st.session_state.df_processed
+
     st.subheader(f"🔹 Mata Uang: {currency}")
 
-    # === PARAMETER NGARCH (Contoh SGD, ambil dari Colab) ===
+    # === PARAMETER NGARCH (contoh dari Colab SGD) ===
     omega = 1.5322e-07
     alpha = 0.0500
     beta = 0.9300
@@ -558,31 +576,31 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
     # === Hitung volatilitas NGARCH ===
     T = len(returns_all)
     h = np.zeros(T)
-    h[0] = np.var(train_data[currency])
+    h[0] = np.var(train_data[currency])  # initial value
 
     for t in range(1, T):
         eps_prev = returns_all[t - 1]
         h[t] = omega + alpha * (eps_prev - gamma * np.sqrt(h[t - 1]))**2 + beta * h[t - 1]
 
-    forecasted_vol = np.sqrt(h[-len(test_data):])  # 30 hari terakhir
+    forecasted_vol = np.sqrt(h[-len(test_data[currency]):])  # ambil 30 terakhir
 
-    # === Forecast return 30 hari dari ARIMA ===
-    forecast_return = model_fits_signifikan[currency].forecast(steps=len(test_data)).reset_index(drop=True)
+    # === Forecast return dari ARIMA ===
+    forecast_return = model_fits_signifikan[currency].forecast(steps=len(test_data[currency])).reset_index(drop=True)
 
-    # === Ambil harga terakhir dari train (bukan return) ===
+    # === Harga awal (level) ===
     last_train_index = train_data[currency].index[-1]
     last_price = df.loc[last_train_index, currency]
 
-    # === Prediksi harga ===
+    # === Hitung prediksi harga & band ===
     forecast_price = last_price * np.exp(np.cumsum(forecast_return))
     upper_band = forecast_price * np.exp(forecasted_vol)
     lower_band = forecast_price * np.exp(-forecasted_vol)
 
-    # === Ambil harga aktual (level) ===
+    # === Harga aktual ===
     test_index = test_data[currency].index
     actual_price = df.loc[test_index, currency]
 
-    # === Buat DataFrame hasil ===
+    # === Buat DataFrame hasil prediksi ===
     result_df = pd.DataFrame({
         'Actual': actual_price.values,
         'Forecast': forecast_price.values,
@@ -590,9 +608,9 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
         'Lower_Band': lower_band.values
     }, index=test_index)
 
-    st.dataframe(result_df.style.format("{:,.0f}"))
+    st.dataframe(result_df.style.format("{:,.2f}"))
 
-    # === Visualisasi ===
+    # === Visualisasi: Harga aktual vs prediksi + band ===
     fig, ax = plt.subplots(figsize=(12, 5))
     ax.plot(result_df.index, result_df['Actual'], label='Actual', color='black')
     ax.plot(result_df.index, result_df['Forecast'], label='Forecast', color='blue')
@@ -601,6 +619,11 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
     ax.set_title(f"Forecast vs Actual - {currency}")
     ax.legend()
     st.pyplot(fig)
+
+    # === Tambahan Visualisasi: Pergerakan Volatilitas ===
+    st.subheader("🔍 Prediksi Volatilitas NGARCH")
+    vol_df = pd.DataFrame({'Volatilitas (σ)': forecasted_vol}, index=test_index)
+    st.line_chart(vol_df)
 
     # === Evaluasi Error ===
     rmse = np.sqrt(mean_squared_error(result_df['Actual'], result_df['Forecast']))
