@@ -694,10 +694,6 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
     currency = st.session_state.selected_currency
     model_fits_signifikan = st.session_state.model_fits_signifikan
 
-    if currency not in model_fits_signifikan:
-        st.error(f"Model signifikan untuk {currency} tidak tersedia (Ljung-Box p < 0.05)")
-        st.stop()
-
     train_data = st.session_state.train_data
     test_data = st.session_state.test_data
     df = st.session_state.df_processed
