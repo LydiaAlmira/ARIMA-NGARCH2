@@ -90,15 +90,21 @@ elif menu == "INPUT DATA 📁":
                 if selected_vars:
                     st.session_state.selected_vars = selected_vars
                     st.success(f"Variabel terpilih: {', '.join(selected_vars)}")
+
+                    if len(selected_vars) == 1:
+                        st.session_state.selected_currency = selected_vars[0]
+                    else:
+                        st.warning("Pilih hanya satu variabel untuk proses prediksi.")
+
+                    # Visualisasi pertama (opsional)
+                    selected_chart = st.selectbox("Pilih salah satu untuk ditampilkan grafik:", selected_vars)
+                    st.line_chart(df[selected_chart])
                 else:
                     st.warning("Pilih minimal satu variabel numerik untuk diproses.")
 
-                # Visualisasi pertama (opsional)
-                selected_chart = st.selectbox("Pilih salah satu untuk ditampilkan grafik:", selected_vars)
-                st.line_chart(df[selected_chart])
-
         except Exception as e:
             st.error(f"Terjadi kesalahan saat membaca data: {e}")
+
     else:
         st.info("Silakan unggah file CSV terlebih dahulu.")
 
