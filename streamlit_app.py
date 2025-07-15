@@ -687,12 +687,19 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
     if 'selected_currency' not in st.session_state:
         st.warning("Silakan pilih satu mata uang utama di menu INPUT DATA 📁")
         st.stop()
-    if 'model_fits_signifikan' not in st.session_state:
-        st.warning("Silakan jalankan ARIMA terlebih dahulu.")
-        st.stop()
 
     currency = st.session_state.selected_currency
-    model_fits_signifikan = st.session_state.model_fits_signifikan
+
+    # Coba ambil model ARIMA signifikan, fallback ke model biasa
+    if 'model_fits_signifikan' in st.session_state and currency in st.session_state.model_fits_signifikan:
+        model_fit = st.session_state.model_fits_signifikan[currency]
+        st.info(f"Model ARIMA untuk {currency} signifikan (Ljung-Box p > 0.05)")
+    elif 'model_fits' in st.session_state and currency in st.session_state.model_fits:
+        model_fit = st.session_state.model_fits[currency]
+        st.warning(f"Model ARIMA untuk {currency} tidak signifikan (Ljung-Box p < 0.05), namun tetap digunakan.")
+    else:
+        st.error(f"Tidak ditemukan model ARIMA untuk {currency}.")
+        st.stop()
 
     train_data = st.session_state.train_data
     test_data = st.session_state.test_data
@@ -700,7 +707,7 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
 
     st.subheader(f"🔹 Mata Uang: {currency}")
 
-    # === PARAMETER NGARCH dari Colab (SGD: 1,1 | MYR: 2,1 | IDR: 1,1) ===
+    # === PARAMETER NGARCH dari Colab ===
     if currency == 'SGD':
         omega, alpha, beta, gamma = 1.5322e-07, 0.0500, 0.9300, -0.0146
         ngarch_order = (1, 1)
@@ -711,7 +718,7 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
         omega, alpha1, alpha2, beta, gamma = 7.9481e-07, 0.0906, 0.0905, 0.7300, 0.0382
         ngarch_order = (2, 1)
     else:
-        st.error(f"NGARCH parameters belum disiapkan untuk {currency}.")
+        st.error(f"NGARCH parameters belum tersedia untuk {currency}.")
         st.stop()
 
     # === Gabungkan return train + test ===
@@ -734,10 +741,10 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
             term2 = alpha2 * (eps2 - gamma * np.sqrt(h[t - 2]))**2
             h[t] = omega + term1 + term2 + beta * h[t - 1]
 
-    forecasted_vol = np.sqrt(h[-len(test_data[currency]):])  # ambil prediksi ke depan
+    forecasted_vol = np.sqrt(h[-len(test_data[currency]):])
 
     # === Forecast return dari ARIMA ===
-    forecast_return = model_fits_signifikan[currency].forecast(steps=len(test_data[currency])).reset_index(drop=True)
+    forecast_return = model_fit.forecast(steps=len(test_data[currency])).reset_index(drop=True)
 
     # === Harga awal (level) ===
     last_train_index = train_data[currency].index[-1]
@@ -760,6 +767,7 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
         'Lower_Band': lower_band.values
     }, index=test_index)
 
+    # Simpan ke session
     if 'result_price_all' not in st.session_state:
         st.session_state.result_price_all = {}
     st.session_state.result_price_all[currency] = result_df
@@ -792,4 +800,3 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
     st.write(f"**RMSE** : {rmse:,.4f}")
     st.write(f"**MAE**  : {mae:,.4f}")
     st.write(f"**MAPE** : {mape:.2f}%")
-
