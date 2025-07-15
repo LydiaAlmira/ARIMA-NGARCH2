@@ -678,7 +678,7 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
     st.header("📊 ARIMA-NGARCH Forecasting")
 
     # === Validasi session_state & ambil data ===
-    if 'selected_currency' not in st.session_state:
+    if 'selected_vars' not in st.session_state:
         st.warning("Silakan pilih satu mata uang utama di menu INPUT DATA 📁")
         st.stop()
     if 'model_fits_signifikan' not in st.session_state:
