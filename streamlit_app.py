@@ -677,7 +677,7 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
 
     st.header("📊 ARIMA-NGARCH Forecasting")
 
-    # === Validasi session_state & ambil data yang dibutuhkan ===
+    # === Validasi session_state & ambil data ===
     if 'selected_currency' not in st.session_state:
         st.warning("Silakan pilih satu mata uang utama di menu INPUT DATA 📁")
         st.stop()
@@ -698,25 +698,41 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
 
     st.subheader(f"🔹 Mata Uang: {currency}")
 
-    # === PARAMETER NGARCH (contoh dari Colab SGD) ===
-    omega = 1.5322e-07
-    alpha = 0.0500
-    beta = 0.9300
-    gamma = -0.0146
+    # === PARAMETER NGARCH dari Colab (SGD: 1,1 | MYR: 2,1 | IDR: 1,1) ===
+    if currency == 'SGD':
+        omega, alpha, beta, gamma = 1.5322e-07, 0.0500, 0.9300, -0.0146
+        ngarch_order = (1, 1)
+    elif currency == 'IDR':
+        omega, alpha, beta, gamma = 8.7206e-07, 0.1000, 0.8800, 0.0102
+        ngarch_order = (1, 1)
+    elif currency == 'MYR':
+        omega, alpha1, alpha2, beta, gamma = 7.9481e-07, 0.0906, 0.0905, 0.7300, 0.0382
+        ngarch_order = (2, 1)
+    else:
+        st.error(f"NGARCH parameters belum disiapkan untuk {currency}.")
+        st.stop()
 
     # === Gabungkan return train + test ===
     returns_all = pd.concat([train_data[currency], test_data[currency]]).reset_index(drop=True)
-
-    # === Hitung volatilitas NGARCH ===
     T = len(returns_all)
     h = np.zeros(T)
-    h[0] = np.var(train_data[currency])  # initial value
 
-    for t in range(1, T):
-        eps_prev = returns_all[t - 1]
-        h[t] = omega + alpha * (eps_prev - gamma * np.sqrt(h[t - 1]))**2 + beta * h[t - 1]
+    # === Perhitungan Volatilitas NGARCH ===
+    if ngarch_order == (1, 1):
+        h[0] = np.var(train_data[currency])
+        for t in range(1, T):
+            eps_prev = returns_all.iloc[t - 1]
+            h[t] = omega + alpha * (eps_prev - gamma * np.sqrt(h[t - 1]))**2 + beta * h[t - 1]
+    elif ngarch_order == (2, 1):
+        h[:2] = np.var(train_data[currency])
+        for t in range(2, T):
+            eps1 = returns_all.iloc[t - 1]
+            eps2 = returns_all.iloc[t - 2]
+            term1 = alpha1 * (eps1 - gamma * np.sqrt(h[t - 1]))**2
+            term2 = alpha2 * (eps2 - gamma * np.sqrt(h[t - 2]))**2
+            h[t] = omega + term1 + term2 + beta * h[t - 1]
 
-    forecasted_vol = np.sqrt(h[-len(test_data[currency]):])  # ambil 30 terakhir
+    forecasted_vol = np.sqrt(h[-len(test_data[currency]):])  # ambil prediksi ke depan
 
     # === Forecast return dari ARIMA ===
     forecast_return = model_fits_signifikan[currency].forecast(steps=len(test_data[currency])).reset_index(drop=True)
@@ -727,8 +743,8 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
 
     # === Hitung prediksi harga & band ===
     forecast_price = last_price * np.exp(np.cumsum(forecast_return))
-    upper_band = forecast_price * np.exp(forecasted_vol)
-    lower_band = forecast_price * np.exp(-forecasted_vol)
+    upper_band = last_price * np.exp(np.cumsum(forecast_return + forecasted_vol))
+    lower_band = last_price * np.exp(np.cumsum(forecast_return - forecasted_vol))
 
     # === Harga aktual ===
     test_index = test_data[currency].index
@@ -742,6 +758,12 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
         'Lower_Band': lower_band.values
     }, index=test_index)
 
+    if 'result_price_all' not in st.session_state:
+        st.session_state.result_price_all = {}
+    st.session_state.result_price_all[currency] = result_df
+
+    # === Tampilkan tabel hasil ===
+    st.subheader("📄 Tabel Hasil Prediksi")
     st.dataframe(result_df.style.format("{:,.2f}"))
 
     # === Visualisasi: Harga aktual vs prediksi + band ===
@@ -754,7 +776,7 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
     ax.legend()
     st.pyplot(fig)
 
-    # === Tambahan Visualisasi: Pergerakan Volatilitas ===
+    # === Visualisasi Volatilitas ===
     st.subheader("🔍 Prediksi Volatilitas NGARCH")
     vol_df = pd.DataFrame({'Volatilitas (σ)': forecasted_vol}, index=test_index)
     st.line_chart(vol_df)
@@ -768,3 +790,4 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
     st.write(f"**RMSE** : {rmse:,.4f}")
     st.write(f"**MAE**  : {mae:,.4f}")
     st.write(f"**MAPE** : {mape:.2f}%")
+
