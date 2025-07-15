@@ -533,7 +533,141 @@ elif menu == "GARCH (Model)":
     st.dataframe(pd.DataFrame(nonlinear_results)[['Model', 'F-statistic', 'p-value', 'Kesimpulan']])
 
     st.success("✅ Analisis GARCH selesai. Siap lanjut ke NGARCH 🚀")
-    
+
+elif menu == "NGARCH (Model & Prediksi)":
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    from scipy.optimize import minimize
+    from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+    from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch
+    from scipy.stats import probplot
+    import seaborn as sns
+
+    st.header("📊 NGARCH(1,1) Modeling & Forecasting")
+    st.write("Estimasi parameter dengan MLE, uji residual, prediksi volatilitas, dan evaluasi performa model.")
+
+    # Validasi session
+    if 'train_data' not in st.session_state or 'test_data' not in st.session_state:
+        st.warning("Silakan jalankan preprocessing dan ARIMA terlebih dahulu.")
+        st.stop()
+
+    train_data = st.session_state.train_data
+    test_data = st.session_state.test_data
+    df = st.session_state.df_processed
+    currency = 'SGD'
+
+    returns_all = pd.concat([train_data[currency], test_data[currency]]).reset_index(drop=True)
+    returns = returns_all.values
+
+    # Estimasi gamma manual
+    mean_r = np.mean(returns)
+    std_r = np.std(returns)
+    gamma_manual = mean_r / std_r
+
+    # Fungsi log-likelihood
+    def ngarch11_loglik(params, returns):
+        omega, alpha, beta, gamma = params
+        T = len(returns)
+        h = np.zeros(T)
+        h[0] = np.var(returns)
+
+        for t in range(1, T):
+            h[t] = omega + alpha * (returns[t-1] - gamma * np.sqrt(h[t-1]))**2 + beta * h[t-1]
+
+        h = np.maximum(h, 1e-8)
+        ll = -0.5 * (np.log(2*np.pi) + np.log(h) + (returns**2)/h)
+        return -np.sum(ll)
+
+    initial_params = [1.5e-07, 0.05, 0.93, gamma_manual]
+    bounds = [(1e-10, None), (1e-6, 1), (1e-6, 1), (-1, 1)]
+
+    result = minimize(ngarch11_loglik, initial_params, args=(returns,), method='L-BFGS-B', bounds=bounds)
+    omega, alpha, beta, gamma = result.x
+
+    st.subheader("🔧 Estimasi Parameter NGARCH(1,1)")
+    st.write(f"omega : {omega:.6e}")
+    st.write(f"alpha : {alpha:.4f}")
+    st.write(f"beta  : {beta:.4f}")
+    st.write(f"gamma : {gamma:.4f}")
+    st.write(f"Log-Likelihood : {-result.fun:.4f}")
+
+    # Hitung conditional variance h(t)
+    T = len(returns)
+    h = np.zeros(T)
+    h[0] = np.var(returns)
+    for t in range(1, T):
+        h[t] = omega + alpha * (returns[t-1] - gamma * np.sqrt(h[t-1]))**2 + beta * h[t-1]
+
+    h = np.maximum(h, 1e-8)
+    forecasted_vol = np.sqrt(h[-30:])
+    std_resid = returns / np.sqrt(h)
+
+    st.subheader("📉 Residual Diagnostics")
+    resid_sq = std_resid ** 2
+
+    fig, ax = plt.subplots(1, 2, figsize=(12, 5))
+    plot_acf(resid_sq, lags=20, ax=ax[0])
+    ax[0].set_title("ACF Residual Kuadrat")
+    plot_pacf(resid_sq, lags=20, ax=ax[1])
+    ax[1].set_title("PACF Residual Kuadrat")
+    st.pyplot(fig)
+
+    lb_result = acorr_ljungbox(resid_sq, lags=[10, 20], return_df=True)
+    st.write("### Ljung-Box Test")
+    st.dataframe(lb_result)
+
+    arch_stat, arch_pvalue, _, _ = het_arch(std_resid)
+    st.write("### ARCH LM Test")
+    st.write(f"p-value: {arch_pvalue:.4f} - {('Tidak ada' if arch_pvalue > 0.05 else 'Ada')} efek ARCH")
+
+    st.subheader("📊 Histogram dan QQ-Plot Residual")
+    fig1 = plt.figure(figsize=(8, 5))
+    sns.histplot(std_resid, kde=True, bins=30, color='lightgreen')
+    plt.title("Histogram Residual Standar")
+    st.pyplot(fig1)
+
+    fig2 = plt.figure(figsize=(6, 6))
+    probplot(std_resid, dist="norm", plot=plt)
+    plt.title("QQ-Plot Residual Standar")
+    st.pyplot(fig2)
+
+    st.subheader("📈 Evaluasi Prediksi Volatilitas")
+    realized_var = test_data[currency] ** 2
+    forecasted_var = forecasted_vol ** 2
+
+    from sklearn.metrics import mean_squared_error, mean_absolute_error
+    rmse = np.sqrt(mean_squared_error(realized_var, forecasted_var))
+    mae = mean_absolute_error(realized_var, forecasted_var)
+
+    st.write(f"RMSE : {rmse:.8f}")
+    st.write(f"MAE  : {mae:.8f}")
+
+    st.subheader("🔮 Prediksi 30 Hari ke Depan")
+    returns_hist = df[f'{currency}_return'].dropna().reset_index(drop=True)
+    T_hist = len(returns_hist)
+    n_forecast = 30
+    T_total = T_hist + n_forecast
+
+    h_forecast = np.zeros(T_total)
+    h_forecast[0] = np.var(returns_hist)
+    for t in range(1, T_hist):
+        eps_prev = returns_hist[t - 1]
+        h_forecast[t] = omega + alpha * (eps_prev - gamma * np.sqrt(h_forecast[t - 1]))**2 + beta * h_forecast[t - 1]
+    for t in range(T_hist, T_total):
+        h_forecast[t] = omega + alpha * (-gamma * np.sqrt(h_forecast[t - 1]))**2 + beta * h_forecast[t - 1]
+
+    forecast_vol = np.sqrt(h_forecast[-n_forecast:])
+    last_date = df.index[-1]
+    forecast_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=n_forecast, freq='D')
+
+    forecast_df = pd.DataFrame({
+        'Tanggal': forecast_dates,
+        'Volatilitas_Prediksi': forecast_vol
+    })
+    st.dataframe(forecast_df)
+    st.line_chart(forecast_df.set_index('Tanggal'))
+
 
 elif menu == "ARIMA-NGARCH (Prediksi)":
     import numpy as np
