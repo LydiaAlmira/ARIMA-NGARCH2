@@ -697,7 +697,6 @@ elif menu == "ARIMA-NGARCH (Prediksi)":
         st.info(f"Model ARIMA untuk {currency} signifikan (Ljung-Box p > 0.05)")
     elif 'model_fits' in st.session_state and currency in st.session_state.model_fits:
         model_fit = st.session_state.model_fits[currency]
-        st.warning(f"Model ARIMA untuk {currency} tidak signifikan (Ljung-Box p < 0.05), namun tetap digunakan.")
     else:
         st.error(f"Tidak ditemukan model ARIMA untuk {currency}.")
         st.stop()
