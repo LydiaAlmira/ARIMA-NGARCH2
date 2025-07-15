@@ -321,6 +321,7 @@ elif menu == "ARIMA (Model & Prediksi)":
             model_fits_signifikan[currency] = model_fits[currency]
 
     st.session_state.model_fits_signifikan = model_fits_signifikan
+    st.session_state.model_fits = model_fits 
 
     st.subheader("5️⃣ Prediksi Data Test & Evaluasi Akurasi")
     result_price_all = {}
