@@ -449,8 +449,8 @@ elif menu == "GARCH (Model)":
     st.subheader("2️⃣ Pilih Orde GARCH untuk Setiap Mata Uang")
     garch_orders = {}
     for currency in currencies:
-        p = st.selectbox(f"Pilih p (ARCH) untuk {currency}", [1, 2], key=f"p_{currency}")
-        q = st.selectbox(f"Pilih q (GARCH) untuk {currency}", [1, 2], key=f"q_{currency}")
+        p = st.number_input(f"Masukkan nilai p (ARCH) untuk {currency}", min_value=1, max_value=20, value=1, step=1, key=f"p_{currency}")
+        q = st.number_input(f"Masukkan nilai q (GARCH) untuk {currency}", min_value=1, max_value=20, value=1, step=1, key=f"q_{currency}")
         garch_orders[currency] = (p, q)
 
     st.subheader("3️⃣ Estimasi Parameter GARCH")
